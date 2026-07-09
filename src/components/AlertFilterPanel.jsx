@@ -38,7 +38,7 @@ export default function AlertFilterPanel({ filters, onChange, onClose }) {
             ...(dateRange !== 'custom' ? { customStart: null, customEnd: null } : {}),
         }));
 
-    const clearAll = () => setLocal({ ...EMPTY_FILTERS });
+    const clearAll = () => setLocal({ ...DEFAULT_FILTERS });
 
     const apply = () => {
         onChange(local);

@@ -11,10 +11,13 @@ import MapAlertCountBadge from '../components/Map/MapAlertCountBadge';
 import RequestLocationOnFirstInteraction from '../components/Map/RequestLocationOnFirstInteraction';
 import MapFilterPanel from '../components/Map/MapFilterPanel';
 import { DEFAULT_FILTERS } from '../config/filterOptions';
+import { useAuth } from '../contexts/AuthContext';
+import { filterAlertsByCommunities } from '../utils/alertScope';
 
 
 // ─── MapPage ──────────────────────────────────────────────────────────────────
 export default function MapPage() {
+    const { normalCommunityIds, loading: authLoading } = useAuth();
     const [alerts, setAlerts] = useState([]);
     const [alertsLoading, setAlertsLoading] = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
@@ -36,7 +39,7 @@ export default function MapPage() {
         setAlertsLoading(true);
 
         const unsub = subscribeToMapAlertsFiltered(filters, (data) => {
-            setAlerts(data);
+            setAlerts(filterAlertsByCommunities(data, normalCommunityIds));
             setAlertsLoading(false);
         });
 
@@ -48,16 +51,31 @@ export default function MapPage() {
                 unsubRef.current = null;
             }
         };
-    }, [filters]);
+    }, [filters, normalCommunityIds]);
 
     const handleFiltersChange = useCallback((newFilters) => {
         setFilters(newFilters);
-        // If the currently selected alert is no longer in the filtered set, deselect it
-        setSelectedAlert((prev) => {
-            if (!prev) return prev;
-            return prev; // will naturally disappear if not in markers anymore
-        });
+        setSelectedAlert((prev) => prev);
     }, []);
+
+    if (authLoading) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner" />
+            </div>
+        );
+    }
+
+    if (normalCommunityIds.length === 0) {
+        return (
+            <div className="empty-state" style={{ margin: 'var(--space-6)' }}>
+                <div className="empty-state-title">Sin comunidades</div>
+                <div className="empty-state-desc">
+                    Únete a una comunidad desde la app móvil para ver alertas en el mapa.
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="map-page">

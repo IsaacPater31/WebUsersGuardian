@@ -6,21 +6,29 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 
 const pageTitles = {
-    '/': { title: 'Dashboard', subtitle: 'Vista general de alertas y actividad' },
-    '/map': { title: 'Mapa Interactivo', subtitle: 'Alertas en tiempo real geolocalizadas' },
-    '/alerts': { title: 'Alertas', subtitle: 'Histórico completo de alertas recibidas' },
-    '/communities': { title: 'Comunidades', subtitle: 'Comunidades activas en Guardian' },
+    '/': { title: 'Inicio', subtitle: 'Mapa de alertas de tus comunidades' },
+    '/dashboard': { title: 'Estadísticas', subtitle: 'Resumen de actividad en tus comunidades' },
+    '/alerts': { title: 'Alertas', subtitle: 'Histórico de alertas de tus comunidades' },
+    '/communities': { title: 'Comunidades', subtitle: 'Comunidades donde participas' },
+    '/reports': { title: 'Reportes', subtitle: 'Entidades y reportes enviados' },
+    '/messages': { title: 'Mensajes', subtitle: 'Comunicados a tus comunidades' },
+    '/profile': { title: 'Perfil', subtitle: 'Tu cuenta y contraseña' },
 };
 
 function getPageInfo(pathname) {
     if (pageTitles[pathname]) return pageTitles[pathname];
-    if (pathname.startsWith('/communities/')) return { title: 'Detalle de Comunidad', subtitle: 'Alertas y miembros' };
+    if (pathname.startsWith('/communities/')) {
+        return { title: 'Comunidad', subtitle: 'Miembros y alertas' };
+    }
+    if (pathname.startsWith('/reports/')) {
+        return { title: 'Reportes', subtitle: 'Bandeja de la entidad' };
+    }
     return pageTitles['/'];
 }
 
 export default function AppLayout() {
-    const [sidebarOpen, setSidebarOpen] = useState(false);      // mobile overlay
-    const [collapsed, setCollapsed] = useState(false);           // desktop collapse
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(false);
     const location = useLocation();
     const pageInfo = getPageInfo(location.pathname);
 
@@ -32,9 +40,9 @@ export default function AppLayout() {
         setCollapsed((c) => !c);
     };
 
-    // On mobile: close sidebar whenever route changes.
     useEffect(() => {
         if (window.matchMedia('(max-width: 768px)').matches) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- sync UI to route
             setSidebarOpen(false);
         }
     }, [location.pathname]);

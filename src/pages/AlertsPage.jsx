@@ -6,6 +6,8 @@ import AlertCard from '../components/AlertCard';
 import AlertDetailModal from '../components/AlertDetailModal';
 import AlertFilterPanel, { EMPTY_FILTERS } from '../components/AlertFilterPanel';
 import { countActiveFilters } from '../config/filterOptions';
+import { useAuth } from '../contexts/AuthContext';
+import { filterAlertsByCommunities } from '../utils/alertScope';
 
 // ─── Labels de los filtros activos ────────────────────────────────────────────
 
@@ -24,6 +26,7 @@ const DATE_LABELS = {
 };
 
 export default function AlertsPage() {
+    const { normalCommunityIds, loading: authLoading } = useAuth();
     const [alerts, setAlerts]               = useState([]);
     const [loading, setLoading]             = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
@@ -35,12 +38,12 @@ export default function AlertsPage() {
         setLoading(true);
 
         const unsub = subscribeToAlertsFiltered(activeFilters, (data) => {
-            setAlerts(data);
+            setAlerts(filterAlertsByCommunities(data, normalCommunityIds));
             setLoading(false);
         });
 
         return unsub;
-    }, []);
+    }, [normalCommunityIds]);
 
     useEffect(() => {
         const unsub = subscribe(filters);
@@ -97,6 +100,25 @@ export default function AlertsPage() {
                     customEnd: null,
                 })),
         });
+    }
+
+    if (authLoading || (loading && alerts.length === 0)) {
+        return (
+            <div className="loading-container">
+                <div className="loading-spinner" />
+            </div>
+        );
+    }
+
+    if (normalCommunityIds.length === 0) {
+        return (
+            <div className="empty-state">
+                <div className="empty-state-title">Sin comunidades</div>
+                <div className="empty-state-desc">
+                    Únete a una comunidad desde la app móvil para ver alertas aquí.
+                </div>
+            </div>
+        );
     }
 
     // ─── Render ───────────────────────────────────────────────────────────────

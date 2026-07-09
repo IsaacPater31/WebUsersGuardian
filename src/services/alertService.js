@@ -20,10 +20,19 @@
 import {
     collection, query, where, orderBy,
     onSnapshot, Timestamp, getDocs, limit,
+    doc, updateDoc, startAfter,
 } from 'firebase/firestore';
+import { ALERTS_LIST_PAGE_SIZE } from '../config/adminPagination';
+
 import { db } from '../firebase';
 import { Collections }                from '../config/collections';
-import { AlertFields, AlertStatus, QUERY_CONFIG } from '../config/alertTypes';
+import {
+    AlertFields,
+    AlertStatus,
+    QUERY_CONFIG,
+    normalizeAlertType,
+    normalizeFilterTypes,
+} from '../config/alertTypes';
 import { resolveFilterDates }         from '../utils/dateRangeUtils';
 
 // ─── Document parser ──────────────────────────────────────────────────────────
@@ -35,7 +44,8 @@ import { resolveFilterDates }         from '../utils/dateRangeUtils';
  * @param {import('firebase/firestore').DocumentSnapshot} doc
  * @returns {AlertObject}
  */
-function parseAlert(doc) {
+/** Exported for admin analytics — single parser for Firestore alert docs. */
+export function parseAlert(doc) {
     const d = doc.data();
     // ── community_ids normalisation: support both legacy and new format ─────
     const rawCommunityIds = d[AlertFields.communityIds];  // new: array
@@ -50,20 +60,19 @@ function parseAlert(doc) {
         communityIds = [];
     }
 
-    // Same rule as Guardian `AlertModel.fromFirestore`: legacy quick alerts stored HEALTH → URGENCY.
-    let alertType = d[AlertFields.alertType] || '';
+    // Paridad Guardian `AlertModel.fromFirestore` + `AlertTypeNormalize`.
     const flowType = d[AlertFields.type] || '';
-    if (flowType === 'quick' && alertType === 'HEALTH') {
-        alertType = 'URGENCY';
-    }
+    const subtype = d[AlertFields.subtype] ?? d.subType ?? d.sub_type ?? null;
+    const customDetail = d[AlertFields.customDetail] ?? d.customDetail ?? d.custom_detail ?? null;
+    const alertType = normalizeAlertType(d[AlertFields.alertType] || '', flowType);
 
     return {
         id:           doc.id,
         type:         flowType,
         alertType,
         description:  d[AlertFields.description]   ?? null,
-        subtype:      d[AlertFields.subtype]       ?? null,
-        customDetail: d[AlertFields.customDetail]  ?? null,
+        subtype,
+        customDetail,
         timestamp:    d[AlertFields.timestamp]     ?? null,
         isAnonymous:  d[AlertFields.isAnonymous]   ?? false,
         shareLocation:d[AlertFields.shareLocation] ?? false,
@@ -103,6 +112,24 @@ function timestampConstraints(start, end) {
     return constraints;
 }
 
+/** Firestore `where` por `alertType` — solo claves canónicas (casa, vial, …). */
+function firestoreTypeConstraints(canonicalTypes) {
+    if (!canonicalTypes?.length) return [];
+    const expandedTypes = new Set(canonicalTypes);
+    // Mobile quick alerts may persist as HEALTH but normalize to URGENCY in web.
+    if (expandedTypes.has('URGENCY')) expandedTypes.add('HEALTH');
+    // Keep compatibility with mixed datasets where urgency may already be URGENCY.
+    if (expandedTypes.has('HEALTH')) expandedTypes.add('URGENCY');
+    const queryTypes = [...expandedTypes];
+    if (queryTypes.length === 1) {
+        return [where(AlertFields.alertType, '==', queryTypes[0])];
+    }
+    if (queryTypes.length <= 10) {
+        return [where(AlertFields.alertType, 'in', queryTypes)];
+    }
+    return [];
+}
+
 /**
  * Apply client-side type and status post-filters to an array of alerts.
  *
@@ -113,8 +140,9 @@ function timestampConstraints(start, end) {
  */
 function applyClientFilters(alerts, types, status) {
     let result = alerts;
-    if (types.length > 0) {
-        result = result.filter((a) => types.includes(a.alertType));
+    const canonicalTypes = normalizeFilterTypes(types);
+    if (canonicalTypes.length > 0) {
+        result = result.filter((a) => canonicalTypes.includes(a.alertType));
     }
     if (status !== 'all') {
         const target = status === AlertStatus.ATTENDED
@@ -127,6 +155,265 @@ function applyClientFilters(alerts, types, status) {
         );
     }
     return result;
+}
+
+/**
+ * Resolve alert timestamp (Firestore Timestamp | Date | number) to millis.
+ *
+ * @param {AlertObject} alert
+ * @returns {number}
+ */
+function alertTimeMs(alert) {
+    const raw = alert?.timestamp;
+    if (!raw) return 0;
+    if (typeof raw.toDate === 'function') return raw.toDate().getTime();
+    if (raw instanceof Date) return raw.getTime();
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+/** All alerts, newest first (map side panel list). */
+export function sortAlertsNewestFirst(alerts) {
+    return (alerts ?? [])
+        .slice()
+        .sort((a, b) => alertTimeMs(b) - alertTimeMs(a));
+}
+
+/** Pending alerts, newest first. */
+export function sortPendingAlertsNewestFirst(alerts) {
+    return (alerts ?? [])
+        .filter((a) => a.alertStatus !== AlertStatus.ATTENDED)
+        .slice()
+        .sort((a, b) => alertTimeMs(b) - alertTimeMs(a));
+}
+
+/**
+ * Newest pending alert among Firestore docChanges (added/modified).
+ * @param {AlertObject[]} alerts
+ * @param {string[]} changedIds
+ * @returns {AlertObject|null}
+ */
+export function findNewestPendingAmongChanges(alerts, changedIds) {
+    if (!Array.isArray(changedIds) || changedIds.length === 0) return null;
+    const idSet = new Set(changedIds);
+    const pool = (alerts ?? []).filter(
+        (a) => idSet.has(a.id) && a.alertStatus !== AlertStatus.ATTENDED
+    );
+    if (pool.length === 0) return null;
+    return pool.reduce(
+        (latest, current) =>
+            alertTimeMs(current) > alertTimeMs(latest) ? current : latest,
+        pool[0]
+    );
+}
+
+/** True when [alert] is the latest non-attended alert in the feed. */
+export function isActivePendingAlert(alert, latestPendingAlertId) {
+    if (!alert?.id || !latestPendingAlertId) return false;
+    if (alert.alertStatus === AlertStatus.ATTENDED) return false;
+    return alert.id === latestPendingAlertId;
+}
+
+/** Latest pending (not attended) alert id — the active community alert. */
+export function resolveLatestPendingAlertId(alerts) {
+    const pending = (alerts ?? []).filter(
+        (a) => a.alertStatus !== AlertStatus.ATTENDED
+    );
+    if (pending.length === 0) return null;
+    return pending.reduce(
+        (latest, current) =>
+            alertTimeMs(current) > alertTimeMs(latest) ? current : latest,
+        pending[0]
+    ).id;
+}
+
+/**
+ * Suscripción con filtros; intenta `alertType` en servidor (nombres canónicos).
+ * Si falla el índice compuesto, reintenta sin filtro de tipo y filtra en cliente.
+ *
+ * @param {object} filters
+ * @param {(alerts: AlertObject[]) => void} callback
+ * @param {{ mapOnly?: boolean, fetchLimit?: number }} options
+ */
+function subscribeAlertsFiltered(filters, callback, options = {}) {
+    const { types = [], status = 'all' } = filters;
+    const canonicalTypes = normalizeFilterTypes(types);
+    const { start, end } = resolveFilterDates(filters);
+    const fetchLimit = options.fetchLimit ?? QUERY_CONFIG.alertsFetchLimit;
+    let unsub = () => {};
+    let serverTypeFilterFailed = false;
+
+    const buildQuery = (useServerTypeFilter) => {
+        const constraints = [
+            ...timestampConstraints(start, end),
+            ...(useServerTypeFilter ? firestoreTypeConstraints(canonicalTypes) : []),
+            orderBy(AlertFields.timestamp, 'desc'),
+        ];
+        if (!start && !end && !useServerTypeFilter) {
+            constraints.push(limit(fetchLimit));
+        }
+        return query(alertsCol(), ...constraints);
+    };
+
+    const attach = (useServerTypeFilter) => {
+        unsub();
+        unsub = onSnapshot(
+            buildQuery(useServerTypeFilter),
+            (snapshot) => {
+                let base = snapshot.docs.map(parseAlert);
+                if (options.mapOnly) {
+                    base = base.filter((a) => a.shareLocation && a.location);
+                }
+                const filtered = applyClientFilters(base, types, status);
+                const latestContextAlertId = resolveLatestPendingAlertId(filtered);
+                const changedIds = snapshot
+                    .docChanges()
+                    .filter((change) => change.type === 'added' || change.type === 'modified')
+                    .map((change) => change.doc.id);
+
+                callback(filtered, { latestContextAlertId, changedIds });
+            },
+            (error) => {
+                if (useServerTypeFilter && canonicalTypes.length > 0 && !serverTypeFilterFailed) {
+                    serverTypeFilterFailed = true;
+                    console.warn(
+                        '[alertService] Server alertType filter failed; using client-side type filter',
+                        error.message
+                    );
+                    attach(false);
+                    return;
+                }
+                console.error('[alertService] subscribeAlertsFiltered', error.message);
+                callback([], { latestContextAlertId: null, changedIds: [] });
+            }
+        );
+    };
+
+    attach(canonicalTypes.length > 0);
+    return () => unsub();
+}
+
+const ALERTS_PAGE_MAX_SCAN_BATCHES = 10;
+
+function alertMatchesClientFilters(alert, types, status) {
+    return applyClientFilters([alert], types, status).length > 0;
+}
+
+/**
+ * Una página de alertas alineada con los filtros activos.
+ * Si hace falta filtrar en cliente (estado / tipo), avanza en lotes hasta
+ * completar la página o agotar resultados.
+ *
+ * @param {object} filters — mismos filtros que {@link subscribeToAlertsFiltered}
+ * @param {{ pageSize?: number, cursor?: import('firebase/firestore').QueryDocumentSnapshot | null }} [opts]
+ * @returns {Promise<{ items: AlertObject[], lastDoc: import('firebase/firestore').QueryDocumentSnapshot | null, hasMore: boolean }>}
+ */
+async function fetchAlertsPageOnce(filters, useServerTypeFilter, pageSize, cursor) {
+    const { types = [], status = 'all' } = filters;
+    const canonicalTypes = normalizeFilterTypes(types);
+    const { start, end } = resolveFilterDates(filters);
+
+    const needsClientFilter =
+        status !== 'all' || (canonicalTypes.length > 0 && !useServerTypeFilter);
+
+    const buildConstraints = (afterCursor) => {
+        const constraints = [
+            ...timestampConstraints(start, end),
+            ...(useServerTypeFilter ? firestoreTypeConstraints(canonicalTypes) : []),
+            orderBy(AlertFields.timestamp, 'desc'),
+        ];
+        if (afterCursor) constraints.push(startAfter(afterCursor));
+        return constraints;
+    };
+
+    if (!needsClientFilter) {
+        const constraints = buildConstraints(cursor);
+        constraints.push(limit(pageSize));
+        const snapshot = await getDocs(query(alertsCol(), ...constraints));
+        const items = snapshot.docs.map(parseAlert);
+        const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+        return {
+            items,
+            lastDoc,
+            hasMore: snapshot.docs.length === pageSize,
+        };
+    }
+
+    const displayed = [];
+    let scanCursor = cursor;
+    let lastDocForPagination = cursor;
+    let hasMoreInDb = true;
+    let stoppedMidBatch = false;
+
+    for (
+        let batch = 0;
+        batch < ALERTS_PAGE_MAX_SCAN_BATCHES && displayed.length < pageSize && hasMoreInDb;
+        batch += 1
+    ) {
+        const constraints = buildConstraints(scanCursor);
+        constraints.push(limit(pageSize));
+        const snapshot = await getDocs(query(alertsCol(), ...constraints));
+
+        if (snapshot.empty) {
+            hasMoreInDb = false;
+            break;
+        }
+
+        const docs = snapshot.docs;
+        for (let i = 0; i < docs.length; i += 1) {
+            const docSnap = docs[i];
+            const alert = parseAlert(docSnap);
+            if (!alertMatchesClientFilters(alert, types, status)) continue;
+
+            displayed.push(alert);
+            lastDocForPagination = docSnap;
+
+            if (displayed.length >= pageSize) {
+                stoppedMidBatch = i < docs.length - 1;
+                break;
+            }
+        }
+
+        scanCursor = docs[docs.length - 1];
+        if (docs.length < pageSize) hasMoreInDb = false;
+    }
+
+    return {
+        items: displayed,
+        lastDoc: displayed.length > 0 ? lastDocForPagination : scanCursor,
+        hasMore: displayed.length === pageSize && (stoppedMidBatch || hasMoreInDb),
+    };
+}
+
+export async function fetchAlertsPage(
+    filters,
+    { pageSize = ALERTS_LIST_PAGE_SIZE, cursor = null } = {},
+) {
+    const canonicalTypes = normalizeFilterTypes(filters?.types);
+    try {
+        if (canonicalTypes.length > 0) {
+            return await fetchAlertsPageOnce(filters, true, pageSize, cursor);
+        }
+        return await fetchAlertsPageOnce(filters, false, pageSize, cursor);
+    } catch (error) {
+        if (canonicalTypes.length > 0) {
+            console.warn('[alertService] fetchAlertsPage fallback:', error.message);
+            return fetchAlertsPageOnce(filters, false, pageSize, cursor);
+        }
+        throw error;
+    }
+}
+
+/**
+ * Id de la última alerta pendiente (ventana acotada) para el indicador «activa».
+ * @param {number} [scanLimit=40]
+ * @returns {Promise<string|null>}
+ */
+export async function fetchActivePendingAlertId(scanLimit = 40) {
+    const snapshot = await getDocs(
+        query(alertsCol(), orderBy(AlertFields.timestamp, 'desc'), limit(scanLimit)),
+    );
+    return resolveLatestPendingAlertId(snapshot.docs.map(parseAlert));
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -233,28 +520,10 @@ export function subscribeToMapAlerts(callback) {
  * @returns {() => void} unsubscribe
  */
 export function subscribeToMapAlertsFiltered(filters, callback) {
-    const { types = [], status = 'all' } = filters;
-    const { start, end } = resolveFilterDates(filters);
-
-    const constraints = [
-        ...timestampConstraints(start, end),
-        orderBy(AlertFields.timestamp, 'desc'),
-        ...(!start && !end ? [limit(QUERY_CONFIG.mapFetchLimit)] : []),
-    ];
-
-    return onSnapshot(
-        query(alertsCol(), ...constraints),
-        (snapshot) => {
-            const base = snapshot.docs
-                .map(parseAlert)
-                .filter((a) => a.shareLocation && a.location);
-            callback(applyClientFilters(base, types, status));
-        },
-        (error) => {
-            console.error('[subscribeToMapAlertsFiltered]', error.message);
-            callback([]);
-        }
-    );
+    return subscribeAlertsFiltered(filters, callback, {
+        mapOnly: true,
+        fetchLimit: QUERY_CONFIG.mapFetchLimit,
+    });
 }
 
 /**
@@ -273,26 +542,10 @@ export function subscribeToMapAlertsFiltered(filters, callback) {
  * @returns {() => void} unsubscribe
  */
 export function subscribeToAlertsFiltered(filters, callback) {
-    const { types = [], status = 'all' } = filters;
-    const { start, end } = resolveFilterDates(filters);
-
-    const constraints = [
-        ...timestampConstraints(start, end),
-        orderBy(AlertFields.timestamp, 'desc'),
-        ...(!start && !end ? [limit(QUERY_CONFIG.alertsFetchLimit)] : []),
-    ];
-
-    return onSnapshot(
-        query(alertsCol(), ...constraints),
-        (snapshot) => {
-            const base = snapshot.docs.map(parseAlert);
-            callback(applyClientFilters(base, types, status));
-        },
-        (error) => {
-            console.error('[subscribeToAlertsFiltered]', error.message);
-            callback([]);
-        }
-    );
+    return subscribeAlertsFiltered(filters, callback, {
+        mapOnly: false,
+        fetchLimit: QUERY_CONFIG.alertsFetchLimit,
+    });
 }
 
 /**
@@ -346,4 +599,106 @@ export async function getAlertStats() {
         },
         { total: 0, byType: {}, totalViews: 0, totalForwards: 0, totalReports: 0, withLocation: 0 }
     );
+}
+
+/**
+ * Alertas en un rango de fechas (panel admin / analítica).
+ * Si falla la consulta compuesta, reintenta solo con límite inferior.
+ */
+/**
+ * Actualiza el estado de atención (`alert_status`) de una alerta.
+ * @param {string} alertId
+ * @param {'pending'|'attended'} status
+ */
+export async function updateAlertStatus(alertId, status) {
+    const ref = doc(db, Collections.ALERTS, alertId);
+    await updateDoc(ref, { [AlertFields.alertStatus]: status });
+}
+
+export async function fetchAlertsInDateRange(start, end, maxDocs = 2000) {
+    const tryQuery = async (constraints) => {
+        const q = query(alertsCol(), ...constraints);
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(parseAlert);
+    };
+
+    try {
+        return await tryQuery([
+            where(AlertFields.timestamp, '>=', Timestamp.fromDate(start)),
+            where(AlertFields.timestamp, '<=', Timestamp.fromDate(end)),
+            orderBy(AlertFields.timestamp, 'desc'),
+            limit(maxDocs),
+        ]);
+    } catch (e) {
+        console.warn('[fetchAlertsInDateRange] fallback:', e?.message);
+        return tryQuery([
+            where(AlertFields.timestamp, '>=', Timestamp.fromDate(start)),
+            orderBy(AlertFields.timestamp, 'desc'),
+            limit(maxDocs),
+        ]).then((alerts) =>
+            alerts.filter((a) => {
+                const t = a.timestamp?.toDate?.() ?? new Date(0);
+                return t <= end;
+            })
+        );
+    }
+}
+
+/**
+ * Real-time subscription for alerts in an arbitrary date range.
+ * Compatible with Spark: uses only client Firestore listeners.
+ *
+ * @param {Date} start
+ * @param {Date} end
+ * @param {(alerts: AlertObject[], meta: { latestContextAlertId: string|null, changedIds: string[] }) => void} callback
+ * @param {number} [maxDocs=2000]
+ * @returns {() => void}
+ */
+export function subscribeToAlertsInDateRange(start, end, callback, maxDocs = 2000) {
+    const build = ({ withUpperBound }) => {
+        const constraints = [
+            where(AlertFields.timestamp, '>=', Timestamp.fromDate(start)),
+            orderBy(AlertFields.timestamp, 'desc'),
+            limit(maxDocs),
+        ];
+        if (withUpperBound) {
+            constraints.splice(1, 0, where(AlertFields.timestamp, '<=', Timestamp.fromDate(end)));
+        }
+        return query(alertsCol(), ...constraints);
+    };
+
+    let unsub = () => {};
+    let fallbackApplied = false;
+
+    const attach = (withUpperBound) => {
+        unsub();
+        unsub = onSnapshot(
+            build({ withUpperBound }),
+            (snapshot) => {
+                let alerts = snapshot.docs.map(parseAlert);
+                if (!withUpperBound) {
+                    alerts = alerts.filter((a) => alertTimeMs(a) <= end.getTime());
+                }
+                const latestContextAlertId = resolveLatestPendingAlertId(alerts);
+                const changedIds = snapshot
+                    .docChanges()
+                    .filter((change) => change.type === 'added' || change.type === 'modified')
+                    .map((change) => change.doc.id);
+                callback(alerts, { latestContextAlertId, changedIds });
+            },
+            (error) => {
+                if (withUpperBound && !fallbackApplied) {
+                    fallbackApplied = true;
+                    console.warn('[alertService] subscribeToAlertsInDateRange fallback:', error.message);
+                    attach(false);
+                    return;
+                }
+                console.error('[alertService] subscribeToAlertsInDateRange', error.message);
+                callback([], { latestContextAlertId: null, changedIds: [] });
+            }
+        );
+    };
+
+    attach(true);
+    return () => unsub();
 }

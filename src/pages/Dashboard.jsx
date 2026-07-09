@@ -1,90 +1,59 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { BarChart3, Users } from 'lucide-react';
+import { subscribeToAlertsInDateRange } from '../services/alertService';
+import { getAlertLabel } from '../config/alertTypes';
+import { useAuth } from '../contexts/AuthContext';
 import {
-    AlertTriangle,
-    Eye,
-    Forward,
-    Users,
-    MapPin,
-    TrendingUp,
-} from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
-import { subscribeToRecentAlerts, getAlertStats } from '../services/alertService';
-import { EMERGENCY_TYPES, getAlertColor, getAlertLabel } from '../data/emergencyTypes';
-import AlertCard from '../components/AlertCard';
-import AlertDetailModal from '../components/AlertDetailModal';
+    aggregateByType,
+    aggregateTopSenders,
+    filterAlertsByCommunities,
+} from '../utils/alertScope';
+
+const PRESETS = [
+    { days: 7, label: '7 días' },
+    { days: 30, label: '30 días' },
+    { days: 90, label: '90 días' },
+];
+
+function daysAgo(n) {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
 
 export default function Dashboard() {
+    const { normalCommunityIds, loading: authLoading } = useAuth();
+    const [presetDays, setPresetDays] = useState(30);
     const [alerts, setAlerts] = useState([]);
-    const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [selectedAlert, setSelectedAlert] = useState(null);
+    const [includeAnonymous, setIncludeAnonymous] = useState(true);
+
+    const rangeStart = useMemo(() => daysAgo(presetDays), [presetDays]);
+    const rangeEnd = useMemo(() => new Date(), []);
 
     useEffect(() => {
-        const unsub = subscribeToRecentAlerts((data) => {
-            setAlerts(data);
+        if (authLoading) return;
+        setLoading(true);
+        const unsub = subscribeToAlertsInDateRange(rangeStart, rangeEnd, (data) => {
+            setAlerts(filterAlertsByCommunities(data, normalCommunityIds));
             setLoading(false);
-
-            // Compute stats from the live data
-            const s = {
-                total: data.length,
-                byType: {},
-                totalViews: 0,
-                totalForwards: 0,
-                withLocation: 0,
-            };
-            for (const a of data) {
-                s.byType[a.alertType] = (s.byType[a.alertType] || 0) + 1;
-                s.totalViews += a.viewedCount;
-                s.totalForwards += a.forwardsCount;
-                if (a.shareLocation && a.location) s.withLocation++;
-            }
-            setStats(s);
-        });
-
+        }, 1500);
         return unsub;
-    }, []);
+    }, [rangeStart, rangeEnd, normalCommunityIds, authLoading]);
 
-    // Get unique community IDs from alerts (supports multi-community alerts)
-    const communityIds = new Set(alerts.flatMap((a) => a.communityIds ?? (a.communityId ? [a.communityId] : [])));
+    const byType = useMemo(() => aggregateByType(alerts), [alerts]);
+    const chartData = useMemo(
+        () => byType.map((row) => ({ name: getAlertLabel(row.type), count: row.count })),
+        [byType],
+    );
+    const topSenders = useMemo(
+        () => aggregateTopSenders(alerts, includeAnonymous).slice(0, 15),
+        [alerts, includeAnonymous],
+    );
 
-    const statCards = [
-        {
-            label: 'Alertas (24h)',
-            value: stats?.total ?? '—',
-            icon: AlertTriangle,
-            color: '#FF3B30',
-            bg: 'rgba(255, 59, 48, 0.08)',
-        },
-        {
-            label: 'Vistas totales',
-            value: stats?.totalViews ?? '—',
-            icon: Eye,
-            color: '#007AFF',
-            bg: 'rgba(0, 122, 255, 0.08)',
-        },
-        {
-            label: 'Reenvíos',
-            value: stats?.totalForwards ?? '—',
-            icon: Forward,
-            color: '#6366F1',
-            bg: 'rgba(99, 102, 241, 0.08)',
-        },
-        {
-            label: 'Con ubicación',
-            value: stats?.withLocation ?? '—',
-            icon: MapPin,
-            color: '#34C759',
-            bg: 'rgba(52, 199, 89, 0.08)',
-        },
-    ];
-
-    // Build sorted type distribution
-    const typeEntries = stats?.byType
-        ? Object.entries(stats.byType).sort((a, b) => b[1] - a[1])
-        : [];
-    const maxCount = typeEntries.length > 0 ? typeEntries[0][1] : 1;
-
-    if (loading) {
+    if (authLoading || loading) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
@@ -92,116 +61,115 @@ export default function Dashboard() {
         );
     }
 
+    if (normalCommunityIds.length === 0) {
+        return (
+            <div className="empty-state">
+                <div className="empty-state-icon"><BarChart3 /></div>
+                <div className="empty-state-title">Sin datos</div>
+                <div className="empty-state-desc">
+                    Las estadísticas aparecen cuando perteneces a comunidades normales.
+                </div>
+            </div>
+        );
+    }
+
     return (
         <>
-            {/* Stats Grid */}
-            <div className="stats-grid">
-                {statCards.map((s) => (
-                    <div
-                        key={s.label}
-                        className="stat-card"
-                        style={{ '--stat-accent': s.color }}
-                    >
-                        <div className="stat-card-header">
-                            <div
-                                className="stat-card-icon"
-                                style={{ background: s.bg }}
+            <div className="dash-period-card">
+                <div className="dash-period-head">
+                    <span className="dash-period-label">Periodo</span>
+                    <div className="dash-preset-row">
+                        {PRESETS.map((p) => (
+                            <button
+                                key={p.days}
+                                type="button"
+                                className={`dash-preset-btn${presetDays === p.days ? ' active' : ''}`}
+                                onClick={() => setPresetDays(p.days)}
                             >
-                                <s.icon style={{ color: s.color }} />
-                            </div>
-                        </div>
-                        <div className="stat-card-value">{s.value}</div>
-                        <div className="stat-card-label">{s.label}</div>
-                    </div>
-                ))}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-                {/* Recent Alerts */}
-                <div className="section" style={{ gridColumn: typeEntries.length > 0 ? '1' : '1 / -1' }}>
-                    <div className="section-header">
-                        <div className="section-header-left">
-                            <div className="section-icon" style={{ background: 'rgba(0, 122, 255, 0.08)' }}>
-                                <AlertTriangle style={{ color: '#007AFF' }} />
-                            </div>
-                            <h3 className="section-title">Alertas recientes</h3>
-                        </div>
-                        {alerts.length > 0 && (
-                            <span
-                                className="section-badge"
-                                style={{ background: 'rgba(255, 59, 48, 0.1)', color: '#FF3B30' }}
-                            >
-                                {alerts.length}
-                            </span>
-                        )}
-                    </div>
-                    <div className="section-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                        {alerts.length === 0 ? (
-                            <div className="empty-state">
-                                <div className="empty-state-icon">
-                                    <AlertTriangle />
-                                </div>
-                                <div className="empty-state-title">Sin alertas recientes</div>
-                                <div className="empty-state-desc">
-                                    No hay alertas en las últimas 24 horas.
-                                </div>
-                            </div>
-                        ) : (
-                            alerts.slice(0, 10).map((alert) => (
-                                <AlertCard
-                                    key={alert.id}
-                                    alert={alert}
-                                    onClick={setSelectedAlert}
-                                />
-                            ))
-                        )}
+                                {p.label}
+                            </button>
+                        ))}
                     </div>
                 </div>
-
-                {/* Type Distribution */}
-                {typeEntries.length > 0 && (
-                    <div className="section">
-                        <div className="section-header">
-                            <div className="section-header-left">
-                                <div className="section-icon" style={{ background: 'rgba(99, 102, 241, 0.08)' }}>
-                                    <TrendingUp style={{ color: '#6366F1' }} />
-                                </div>
-                                <h3 className="section-title">Distribución por tipo</h3>
-                            </div>
-                        </div>
-                        <div className="section-body">
-                            <div className="type-distribution">
-                                {typeEntries.map(([type, count]) => (
-                                    <div key={type} className="type-bar">
-                                        <div
-                                            className="type-bar-dot"
-                                            style={{ background: getAlertColor(type) }}
-                                        />
-                                        <span className="type-bar-label">{getAlertLabel(type)}</span>
-                                        <div className="type-bar-track">
-                                            <div
-                                                className="type-bar-fill"
-                                                style={{
-                                                    width: `${(count / maxCount) * 100}%`,
-                                                    background: getAlertColor(type),
-                                                }}
-                                            />
-                                        </div>
-                                        <span className="type-bar-count">{count}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                <div className="stat-card-value" style={{ fontSize: 28 }}>{alerts.length}</div>
+                <div className="stat-card-label">Alertas en el periodo</div>
             </div>
 
-            {selectedAlert && (
-                <AlertDetailModal
-                    alert={selectedAlert}
-                    onClose={() => setSelectedAlert(null)}
-                />
-            )}
+            <div className="stats-grid" style={{ marginTop: 'var(--space-4)' }}>
+                <section className="section section--dash">
+                    <div className="section-header">
+                        <div className="section-header-left">
+                            <div className="section-icon" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                                <BarChart3 size={18} style={{ color: '#6366F1' }} />
+                            </div>
+                            <h3 className="section-title">Por tipo de alerta</h3>
+                        </div>
+                    </div>
+                    <div className="section-body" style={{ height: 280 }}>
+                        {chartData.length === 0 ? (
+                            <p className="admin-muted">Sin alertas en este periodo.</p>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                                    <Tooltip />
+                                    <Bar dataKey="count" fill="#6366F1" radius={[6, 6, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </section>
+
+                <section className="section section--dash">
+                    <div className="section-header">
+                        <div className="section-header-left">
+                            <div className="section-icon" style={{ background: 'rgba(52,199,89,0.12)' }}>
+                                <Users size={18} style={{ color: '#34C759' }} />
+                            </div>
+                            <h3 className="section-title">Quién genera alertas</h3>
+                        </div>
+                        <label className="stats-anon-toggle">
+                            <input
+                                type="checkbox"
+                                checked={includeAnonymous}
+                                onChange={(e) => setIncludeAnonymous(e.target.checked)}
+                            />
+                            Incluir anónimos
+                        </label>
+                    </div>
+                    <div className="section-body section-body--table">
+                        {topSenders.length === 0 ? (
+                            <p className="admin-muted">Sin emisores en este periodo.</p>
+                        ) : (
+                            <div className="admin-table-scroll">
+                                <table className="admin-table admin-table--users">
+                                    <thead>
+                                        <tr>
+                                            <th>Emisor</th>
+                                            <th>Alertas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {topSenders.map((row) => (
+                                            <tr key={row.key}>
+                                                <td>
+                                                    {row.label}
+                                                    {row.isAnonymous && (
+                                                        <span className="anon-badge">Anónimo</span>
+                                                    )}
+                                                </td>
+                                                <td>{row.count}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                </section>
+            </div>
         </>
     );
 }

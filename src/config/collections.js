@@ -8,8 +8,10 @@
  * Principle: Information Expert (GRASP) — the config layer owns the names.
  */
 export const Collections = Object.freeze({
-    ALERTS:            'alerts',
-    COMMUNITIES:       'communities',
-    COMMUNITY_MEMBERS: 'community_members',
-    USERS:             'users',
+    ALERTS:              'alerts',
+    COMMUNITIES:         'communities',
+    COMMUNITY_MEMBERS:   'community_members',
+    COMMUNITY_MESSAGES:  'community_messages',
+    INVITES:             'invites',
+    USERS:               'users',
 });

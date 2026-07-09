@@ -1,41 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Shield, Building2, Calendar, ChevronRight } from 'lucide-react';
-import { getAllCommunities, getCommunityMemberCount } from '../services/communityService';
+import { Users, Shield, ChevronRight } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { visibleUserCommunities } from '../utils/communityVisibility';
+import { roleLabel } from '../utils/permissions';
+import { getCommunityMemberCount } from '../services/communityService';
+import CommunityIconDisplay from '../components/community/CommunityIconDisplay';
 
 export default function CommunitiesPage() {
-    const [communities, setCommunities] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [memberCounts, setMemberCounts] = useState({});
+    const { memberships, loading: authLoading } = useAuth();
     const navigate = useNavigate();
+    const [memberCounts, setMemberCounts] = useState({});
+
+    const communities = useMemo(() => {
+        const withMeta = memberships
+            .filter((m) => m.community && !m.community.isEntity)
+            .map((m) => ({
+                ...m.community,
+                myRole: m.role,
+            }));
+        return visibleUserCommunities(withMeta);
+    }, [memberships]);
 
     useEffect(() => {
-        loadCommunities();
-    }, []);
-
-    async function loadCommunities() {
-        try {
-            const data = await getAllCommunities();
-            setCommunities(data);
-            setLoading(false);
-
-            // Load member counts in background
+        let cancelled = false;
+        async function loadCounts() {
             const counts = {};
-            for (const c of data) {
+            for (const c of communities) {
                 try {
                     counts[c.id] = await getCommunityMemberCount(c.id);
                 } catch {
                     counts[c.id] = 0;
                 }
             }
-            setMemberCounts(counts);
-        } catch (e) {
-            console.error('Error loading communities:', e);
-            setLoading(false);
+            if (!cancelled) setMemberCounts(counts);
         }
-    }
+        if (communities.length) loadCounts();
+        return () => { cancelled = true; };
+    }, [communities]);
 
-    if (loading) {
+    if (authLoading) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
@@ -43,147 +47,50 @@ export default function CommunitiesPage() {
         );
     }
 
-    // Separate entities from regular communities
-    const entities = communities.filter((c) => c.isEntity);
-    const regularCommunities = communities.filter((c) => !c.isEntity);
-
-    return (
-        <>
-            {/* Entities Section */}
-            {entities.length > 0 && (
-                <>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        marginBottom: 'var(--space-4)',
-                    }}>
-                        <Building2 style={{ width: 18, height: 18, color: 'var(--color-text-tertiary)' }} />
-                        <h3 style={{
-                            fontSize: 'var(--font-size-lg)',
-                            fontWeight: 700,
-                            color: 'var(--color-text-primary)',
-                        }}>
-                            Entidades Oficiales
-                        </h3>
-                        <span style={{
-                            padding: '2px 10px',
-                            borderRadius: 'var(--radius-full)',
-                            background: 'rgba(99, 102, 241, 0.1)',
-                            color: '#6366F1',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 700,
-                        }}>
-                            {entities.length}
-                        </span>
-                    </div>
-                    <div className="communities-grid" style={{ marginBottom: 'var(--space-8)' }}>
-                        {entities.map((c) => (
-                            <CommunityCard key={c.id} community={c} memberCount={memberCounts[c.id]} onClick={() => navigate(`/communities/${c.id}`)} />
-                        ))}
-                    </div>
-                </>
-            )}
-
-            {/* Regular Communities */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: 'var(--space-4)',
-            }}>
-                <Users style={{ width: 18, height: 18, color: 'var(--color-text-tertiary)' }} />
-                <h3 style={{
-                    fontSize: 'var(--font-size-lg)',
-                    fontWeight: 700,
-                    color: 'var(--color-text-primary)',
-                }}>
-                    Comunidades
-                </h3>
-                <span style={{
-                    padding: '2px 10px',
-                    borderRadius: 'var(--radius-full)',
-                    background: 'rgba(52, 199, 89, 0.1)',
-                    color: '#34C759',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
-                }}>
-                    {regularCommunities.length}
-                </span>
+    if (communities.length === 0) {
+        return (
+            <div className="empty-state">
+                <div className="empty-state-icon"><Users /></div>
+                <div className="empty-state-title">Sin comunidades</div>
+                <div className="empty-state-desc">
+                    Únete a una comunidad desde la app móvil con un enlace de invitación.
+                </div>
             </div>
-
-            {regularCommunities.length === 0 ? (
-                <div className="empty-state">
-                    <div className="empty-state-icon">
-                        <Users />
-                    </div>
-                    <div className="empty-state-title">Sin comunidades</div>
-                    <div className="empty-state-desc">
-                        Aún no hay comunidades registradas.
-                    </div>
-                </div>
-            ) : (
-                <div className="communities-grid">
-                    {regularCommunities.map((c) => (
-                        <CommunityCard key={c.id} community={c} memberCount={memberCounts[c.id]} onClick={() => navigate(`/communities/${c.id}`)} />
-                    ))}
-                </div>
-            )}
-        </>
-    );
-}
-
-function CommunityCard({ community, memberCount, onClick }) {
-    const iconColor = community.iconColor || '#6366F1';
-    const createdDate = community.createdAt?.toDate
-        ? community.createdAt.toDate()
-        : new Date(community.createdAt);
+        );
+    }
 
     return (
-        <div className="community-card" onClick={onClick} style={{ cursor: 'pointer' }}>
-            <div className="community-card-header">
-                <div
-                    className="community-card-icon"
-                    style={{ background: iconColor }}
+        <div className="communities-grid">
+            {communities.map((c) => (
+                <button
+                    key={c.id}
+                    type="button"
+                    className="community-card"
+                    onClick={() => navigate(`/communities/${c.id}`)}
                 >
-                    {community.isEntity ? (
-                        <Building2 style={{ width: 22, height: 22, color: 'white' }} />
-                    ) : (
-                        <Users style={{ width: 22, height: 22, color: 'white' }} />
-                    )}
-                </div>
-                <div style={{ flex: 1 }}>
-                    <div className="community-card-name">{community.name}</div>
-                    {community.isEntity && (
-                        <span style={{
-                            fontSize: 'var(--font-size-xs)',
-                            color: '#6366F1',
-                            fontWeight: 600,
-                            background: 'rgba(99, 102, 241, 0.1)',
-                            padding: '1px 8px',
-                            borderRadius: 'var(--radius-full)',
-                        }}>
-                            Entidad oficial
-                        </span>
-                    )}
-                </div>
-                <ChevronRight style={{ width: 16, height: 16, color: 'var(--color-text-tertiary)' }} />
-            </div>
-            {community.description && (
-                <p className="community-card-desc">{community.description}</p>
-            )}
-            <div className="community-card-footer">
-                <Users style={{ width: 14, height: 14 }} />
-                <span>{memberCount ?? '—'} miembros</span>
-                <span style={{ margin: '0 4px' }}>·</span>
-                <Calendar style={{ width: 14, height: 14 }} />
-                <span>
-                    {createdDate.toLocaleDateString('es-CO', {
-                        month: 'short',
-                        year: 'numeric',
-                    })}
-                </span>
-            </div>
+                    <div className="community-card-icon">
+                        <CommunityIconDisplay
+                            iconCodePoint={c.iconCodePoint}
+                            iconColor={c.iconColor}
+                            size={28}
+                        />
+                    </div>
+                    <div className="community-card-body">
+                        <div className="community-card-name">{c.name}</div>
+                        {c.description && (
+                            <div className="community-card-desc">{c.description}</div>
+                        )}
+                        <div className="community-card-meta">
+                            <span>{memberCounts[c.id] ?? '—'} miembros</span>
+                            <span className="community-role-pill">
+                                {c.myRole === 'admin' ? <Shield size={12} /> : null}
+                                {roleLabel(c.myRole, false)}
+                            </span>
+                        </div>
+                    </div>
+                    <ChevronRight className="community-card-chevron" size={18} />
+                </button>
+            ))}
         </div>
     );
 }
