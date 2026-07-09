@@ -23,6 +23,19 @@ function daysAgo(n) {
     return d;
 }
 
+function endOfDay(d) {
+    const x = new Date(d);
+    x.setHours(23, 59, 59, 999);
+    return x;
+}
+
+function formatPeriodSummary(start, end) {
+    const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+    const a = start.toLocaleDateString('es-CO', opts);
+    const b = end.toLocaleDateString('es-CO', opts);
+    return `${a} — ${b}`;
+}
+
 export default function Dashboard() {
     const { normalCommunityIds, loading: authLoading } = useAuth();
     const [presetDays, setPresetDays] = useState(30);
@@ -31,7 +44,12 @@ export default function Dashboard() {
     const [includeAnonymous, setIncludeAnonymous] = useState(true);
 
     const rangeStart = useMemo(() => daysAgo(presetDays), [presetDays]);
-    const rangeEnd = useMemo(() => new Date(), []);
+    const rangeEnd = useMemo(() => endOfDay(new Date()), [presetDays]);
+    const periodSummary = useMemo(
+        () => formatPeriodSummary(rangeStart, rangeEnd),
+        [rangeStart, rangeEnd],
+    );
+    const periodKey = `${rangeStart.getTime()}-${rangeEnd.getTime()}`;
 
     useEffect(() => {
         if (authLoading) return;
@@ -53,7 +71,7 @@ export default function Dashboard() {
         [alerts, includeAnonymous],
     );
 
-    if (authLoading || loading) {
+    if (authLoading || (loading && alerts.length === 0)) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
@@ -77,13 +95,24 @@ export default function Dashboard() {
         <>
             <div className="dash-period-card">
                 <div className="dash-period-head">
-                    <span className="dash-period-label">Periodo</span>
-                    <div className="dash-preset-row">
+                    <div className="dash-period-head-main">
+                        <div className="dash-period-title">Periodo</div>
+                        <div className="dash-period-dates" key={periodKey}>
+                            {periodSummary}
+                        </div>
+                        <div className="stat-card-value" style={{ fontSize: 28, marginTop: 'var(--space-3)' }}>
+                            {alerts.length}
+                        </div>
+                        <div className="stat-card-label">Alertas en el periodo</div>
+                    </div>
+                </div>
+                <div className="admin-toolbar-ranges dash-period-ranges">
+                    <div className="admin-segmented admin-segmented--ios admin-segmented--scroll">
                         {PRESETS.map((p) => (
                             <button
                                 key={p.days}
                                 type="button"
-                                className={`dash-preset-btn${presetDays === p.days ? ' active' : ''}`}
+                                className={`admin-segment${presetDays === p.days ? ' active' : ''}`}
                                 onClick={() => setPresetDays(p.days)}
                             >
                                 {p.label}
@@ -91,84 +120,84 @@ export default function Dashboard() {
                         ))}
                     </div>
                 </div>
-                <div className="stat-card-value" style={{ fontSize: 28 }}>{alerts.length}</div>
-                <div className="stat-card-label">Alertas en el periodo</div>
             </div>
 
-            <div className="stats-grid" style={{ marginTop: 'var(--space-4)' }}>
-                <section className="section section--dash">
-                    <div className="section-header">
-                        <div className="section-header-left">
-                            <div className="section-icon" style={{ background: 'rgba(99,102,241,0.1)' }}>
-                                <BarChart3 size={18} style={{ color: '#6366F1' }} />
+            <div className="dash-main">
+                <div className="stats-grid" style={{ marginTop: 'var(--space-4)' }}>
+                    <section className="section section--dash">
+                        <div className="section-header">
+                            <div className="section-header-left">
+                                <div className="section-icon" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                                    <BarChart3 size={18} style={{ color: '#6366F1' }} />
+                                </div>
+                                <h3 className="section-title">Por tipo de alerta</h3>
                             </div>
-                            <h3 className="section-title">Por tipo de alerta</h3>
                         </div>
-                    </div>
-                    <div className="section-body" style={{ height: 280 }}>
-                        {chartData.length === 0 ? (
-                            <p className="admin-muted">Sin alertas en este periodo.</p>
-                        ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
-                                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                                    <Tooltip />
-                                    <Bar dataKey="count" fill="#6366F1" radius={[6, 6, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        )}
-                    </div>
-                </section>
+                        <div className="section-body" style={{ height: 280 }}>
+                            {chartData.length === 0 ? (
+                                <p className="admin-muted">Sin alertas en este periodo.</p>
+                            ) : (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                                        <Tooltip />
+                                        <Bar dataKey="count" fill="#6366F1" radius={[6, 6, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            )}
+                        </div>
+                    </section>
 
-                <section className="section section--dash">
-                    <div className="section-header">
-                        <div className="section-header-left">
-                            <div className="section-icon" style={{ background: 'rgba(52,199,89,0.12)' }}>
-                                <Users size={18} style={{ color: '#34C759' }} />
+                    <section className="section section--dash">
+                        <div className="section-header">
+                            <div className="section-header-left">
+                                <div className="section-icon" style={{ background: 'rgba(52,199,89,0.12)' }}>
+                                    <Users size={18} style={{ color: '#34C759' }} />
+                                </div>
+                                <h3 className="section-title">Quién genera alertas</h3>
                             </div>
-                            <h3 className="section-title">Quién genera alertas</h3>
+                            <label className="stats-anon-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={includeAnonymous}
+                                    onChange={(e) => setIncludeAnonymous(e.target.checked)}
+                                />
+                                Incluir anónimos
+                            </label>
                         </div>
-                        <label className="stats-anon-toggle">
-                            <input
-                                type="checkbox"
-                                checked={includeAnonymous}
-                                onChange={(e) => setIncludeAnonymous(e.target.checked)}
-                            />
-                            Incluir anónimos
-                        </label>
-                    </div>
-                    <div className="section-body section-body--table">
-                        {topSenders.length === 0 ? (
-                            <p className="admin-muted">Sin emisores en este periodo.</p>
-                        ) : (
-                            <div className="admin-table-scroll">
-                                <table className="admin-table admin-table--users">
-                                    <thead>
-                                        <tr>
-                                            <th>Emisor</th>
-                                            <th>Alertas</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {topSenders.map((row) => (
-                                            <tr key={row.key}>
-                                                <td>
-                                                    {row.label}
-                                                    {row.isAnonymous && (
-                                                        <span className="anon-badge">Anónimo</span>
-                                                    )}
-                                                </td>
-                                                <td>{row.count}</td>
+                        <div className="section-body section-body--table">
+                            {topSenders.length === 0 ? (
+                                <p className="admin-muted">Sin emisores en este periodo.</p>
+                            ) : (
+                                <div className="admin-table-scroll">
+                                    <table className="admin-table admin-table--users">
+                                        <thead>
+                                            <tr>
+                                                <th>Emisor</th>
+                                                <th>Alertas</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                </section>
+                                        </thead>
+                                        <tbody>
+                                            {topSenders.map((row) => (
+                                                <tr key={row.key}>
+                                                    <td>
+                                                        {row.label}
+                                                        {row.isAnonymous && (
+                                                            <span className="anon-badge">Anónimo</span>
+                                                        )}
+                                                    </td>
+                                                    <td>{row.count}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </section>
+                </div>
             </div>
         </>
     );

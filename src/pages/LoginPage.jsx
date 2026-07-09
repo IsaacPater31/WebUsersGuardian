@@ -4,7 +4,7 @@ import { LogIn } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
-    const { user, login } = useAuth();
+    const { user, login, loginWithGoogle } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const from = location.state?.from || '/';
@@ -12,10 +12,33 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [busy, setBusy] = useState(false);
+    const [googleBusy, setGoogleBusy] = useState(false);
     const [error, setError] = useState('');
 
     if (user) {
         return <Navigate to={from} replace />;
+    }
+
+    async function handleGoogleLogin() {
+        setError('');
+        setGoogleBusy(true);
+        try {
+            const signedInUser = await loginWithGoogle();
+            if (signedInUser) {
+                navigate(from, { replace: true });
+            }
+        } catch (err) {
+            const code = err?.code || '';
+            if (code === 'auth/account-exists-with-different-credential') {
+                setError('Ya existe una cuenta con este correo usando otro método de inicio de sesión.');
+            } else if (code === 'auth/popup-blocked') {
+                setError('El navegador bloqueó la ventana emergente. Permite ventanas emergentes e intenta de nuevo.');
+            } else {
+                setError(err?.message || 'No se pudo iniciar sesión con Google');
+            }
+        } finally {
+            setGoogleBusy(false);
+        }
     }
 
     async function handleSubmit(e) {
@@ -39,12 +62,26 @@ export default function LoginPage() {
         }
     }
 
+    const isBusy = busy || googleBusy;
+
     return (
         <div className="login-page">
             <div className="login-card">
                 <img src="/guardian_logo.png" alt="Guardian" className="login-logo" />
                 <h1 className="login-title">Guardian</h1>
                 <p className="login-subtitle">Panel de comunidad</p>
+
+                <button
+                    type="button"
+                    className="login-google-btn"
+                    onClick={handleGoogleLogin}
+                    disabled={isBusy}
+                >
+                    <img src="/google_icon.png" alt="" className="login-google-icon" />
+                    {googleBusy ? 'Conectando…' : 'Continuar con Google'}
+                </button>
+
+                <div className="login-divider">o</div>
 
                 <form onSubmit={handleSubmit} className="login-form">
                     <label className="login-label">
@@ -70,7 +107,7 @@ export default function LoginPage() {
                         />
                     </label>
                     {error && <div className="login-error">{error}</div>}
-                    <button type="submit" className="admin-btn-primary login-submit" disabled={busy}>
+                    <button type="submit" className="admin-btn-primary login-submit" disabled={isBusy}>
                         <LogIn size={18} />
                         {busy ? 'Entrando…' : 'Iniciar sesión'}
                     </button>

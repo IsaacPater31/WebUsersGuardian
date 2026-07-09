@@ -8,6 +8,7 @@ import {
     doc,
     getDocs,
     limit,
+    onSnapshot,
     orderBy,
     query,
     serverTimestamp,
@@ -141,4 +142,64 @@ export async function fetchSentMessages(senderId, max = 50) {
             })
             .slice(0, max);
     }
+}
+
+function sentMessagesQuery(senderId, max) {
+    return query(
+        messagesCol(),
+        where(MessageFields.senderId, '==', senderId),
+        orderBy(MessageFields.createdAt, 'desc'),
+        limit(max),
+    );
+}
+
+function parseSentMessagesSnapshot(snap, senderId, max) {
+    return snap.docs
+        .map(parseMessage)
+        .filter((m) => m.senderId === senderId)
+        .sort((a, b) => {
+            const ta = a.createdAt?.toMillis?.() ?? 0;
+            const tb = b.createdAt?.toMillis?.() ?? 0;
+            return tb - ta;
+        })
+        .slice(0, max);
+}
+
+/**
+ * Real-time subscription to messages sent by the current user.
+ * @param {string} senderId
+ * @param {(messages: ReturnType<typeof parseMessage>[]) => void} callback
+ * @param {number} [max=50]
+ * @returns {() => void}
+ */
+export function subscribeSentMessages(senderId, callback, max = 50) {
+    if (!senderId) {
+        callback([]);
+        return () => {};
+    }
+
+    let unsubFallback = () => {};
+    let fallbackAttached = false;
+
+    const unsubPrimary = onSnapshot(
+        sentMessagesQuery(senderId, max),
+        (snap) => callback(snap.docs.map(parseMessage)),
+        () => {
+            if (fallbackAttached) return;
+            fallbackAttached = true;
+            unsubFallback = onSnapshot(
+                query(messagesCol(), limit(200)),
+                (snap) => callback(parseSentMessagesSnapshot(snap, senderId, max)),
+                (err) => {
+                    console.error('[messageService] subscribeSentMessages', err);
+                    callback([]);
+                },
+            );
+        },
+    );
+
+    return () => {
+        unsubPrimary();
+        unsubFallback();
+    };
 }

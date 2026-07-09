@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { MessageSquare, Send } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { fetchSentMessages, sendCommunityMessage } from '../services/messageService';
+import { subscribeSentMessages, sendCommunityMessage } from '../services/messageService';
 
 export default function MessagesPage() {
     const { user, manageableMemberships, canSendMessages, memberships } = useAuth();
@@ -17,8 +17,8 @@ export default function MessagesPage() {
     const communities = manageableMemberships.map((m) => m.community);
 
     useEffect(() => {
-        if (!user?.uid) return;
-        fetchSentMessages(user.uid).then(setHistory).catch(() => setHistory([]));
+        if (!user?.uid) return undefined;
+        return subscribeSentMessages(user.uid, setHistory);
     }, [user?.uid]);
 
     if (!canSendMessages) {
@@ -49,8 +49,6 @@ export default function MessagesPage() {
             setTitle('');
             setBody('');
             setSelectedIds([]);
-            const updated = await fetchSentMessages(user.uid);
-            setHistory(updated);
         } catch (ex) {
             setErr(ex?.message || 'No se pudo enviar');
         } finally {

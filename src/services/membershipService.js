@@ -6,6 +6,7 @@ import {
     doc,
     getDoc,
     getDocs,
+    onSnapshot,
     query,
     where,
 } from 'firebase/firestore';
@@ -45,20 +46,9 @@ function parseMembership(docSnap, community) {
 }
 
 /**
- * @param {string} userId
- * @returns {Promise<Array<{
- *   id: string, communityId: string, userId: string, role: string,
- *   joinedAt: any, community: object | null,
- * }>>}
+ * @param {import('firebase/firestore').QuerySnapshot} snap
  */
-export async function fetchUserMemberships(userId) {
-    if (!userId) return [];
-
-    const q = query(
-        collection(db, Collections.COMMUNITY_MEMBERS),
-        where(MemberFields.userId, '==', userId),
-    );
-    const snap = await getDocs(q);
+async function membershipsFromSnapshot(snap) {
     if (snap.empty) return [];
 
     const communityIds = [
@@ -89,6 +79,58 @@ export async function fetchUserMemberships(userId) {
             return parseMembership(d, communityMap.get(cid) ?? null);
         })
         .filter((m) => m.community != null);
+}
+
+/**
+ * @param {string} userId
+ * @returns {Promise<Array<{
+ *   id: string, communityId: string, userId: string, role: string,
+ *   joinedAt: any, community: object | null,
+ * }>>}
+ */
+export async function fetchUserMemberships(userId) {
+    if (!userId) return [];
+
+    const q = query(
+        collection(db, Collections.COMMUNITY_MEMBERS),
+        where(MemberFields.userId, '==', userId),
+    );
+    const snap = await getDocs(q);
+    return membershipsFromSnapshot(snap);
+}
+
+/**
+ * Real-time membership subscription for the authenticated user.
+ * @param {string} userId
+ * @param {(memberships: Awaited<ReturnType<typeof fetchUserMemberships>>) => void} callback
+ * @returns {() => void}
+ */
+export function subscribeUserMemberships(userId, callback) {
+    if (!userId) {
+        callback([]);
+        return () => {};
+    }
+
+    const q = query(
+        collection(db, Collections.COMMUNITY_MEMBERS),
+        where(MemberFields.userId, '==', userId),
+    );
+
+    return onSnapshot(
+        q,
+        async (snap) => {
+            try {
+                callback(await membershipsFromSnapshot(snap));
+            } catch (e) {
+                console.error('[membershipService] subscribeUserMemberships', e);
+                callback([]);
+            }
+        },
+        (e) => {
+            console.error('[membershipService] subscribeUserMemberships', e);
+            callback([]);
+        },
+    );
 }
 
 /**

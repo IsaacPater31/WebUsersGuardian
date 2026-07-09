@@ -1,6 +1,7 @@
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import {
     EmailAuthProvider,
+    linkWithCredential,
     reauthenticateWithCredential,
     updatePassword,
     updateProfile,
@@ -8,6 +9,7 @@ import {
 import { auth, db } from '../firebase';
 import { Collections } from '../config/collections';
 import { UserFields } from '../config/firestoreFields';
+import { userHasPasswordProvider } from '../utils/authProviders';
 
 export async function updateUserProfile({ displayName }) {
     const user = auth.currentUser;
@@ -23,9 +25,25 @@ export async function updateUserProfile({ displayName }) {
     });
 }
 
+export async function setInitialPassword({ newPassword }) {
+    const user = auth.currentUser;
+    if (!user?.email) throw new Error('No hay sesión activa');
+    if (userHasPasswordProvider(user)) {
+        throw new Error('Ya tienes una contraseña configurada');
+    }
+    if (!newPassword || newPassword.length < 6) {
+        throw new Error('La contraseña debe tener al menos 6 caracteres');
+    }
+    const credential = EmailAuthProvider.credential(user.email, newPassword);
+    await linkWithCredential(user, credential);
+}
+
 export async function changeUserPassword({ currentPassword, newPassword }) {
     const user = auth.currentUser;
     if (!user?.email) throw new Error('No hay sesión activa');
+    if (!userHasPasswordProvider(user)) {
+        throw new Error('No tienes contraseña configurada. Usa "Crear contraseña" en su lugar.');
+    }
     if (!newPassword || newPassword.length < 6) {
         throw new Error('La nueva contraseña debe tener al menos 6 caracteres');
     }

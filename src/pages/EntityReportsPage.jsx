@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getCommunityAlerts, updateAlertStatus } from '../services/alertService';
+import { subscribeToCommunityAlerts, updateAlertStatus } from '../services/alertService';
 import { AlertStatus, getAlertColor, getAlertIcon, getAlertLabel } from '../config/alertTypes';
 import { canViewEntityInbox } from '../utils/permissions';
 import { getSubtypeLabel } from '../utils/alertSubtype';
@@ -67,37 +67,25 @@ export default function EntityReportsPage() {
     const entity = membership?.community;
     const isOfficial = entity ? canViewEntityInbox(entity, membership.role) : false;
 
-    const load = useCallback(async () => {
-        if (!entityId || !user) return;
+    useEffect(() => {
+        if (!entityId || !user) return undefined;
         setLoading(true);
-        try {
-            let data = await getCommunityAlerts(entityId);
-            if (!isOfficial) {
-                data = filterAlertsByUser(data, user.uid);
-            }
-            data.sort((a, b) => {
+        const unsub = subscribeToCommunityAlerts(entityId, (data) => {
+            const sorted = [...data].sort((a, b) => {
                 const ta = a.timestamp?.toDate?.() ?? new Date(0);
                 const tb = b.timestamp?.toDate?.() ?? new Date(0);
                 return tb - ta;
             });
-            setReports(data);
-        } catch (e) {
-            console.error(e);
-            setReports([]);
-        } finally {
+            setReports(isOfficial ? sorted : filterAlertsByUser(sorted, user.uid));
             setLoading(false);
-        }
+        });
+        return unsub;
     }, [entityId, user, isOfficial]);
-
-    useEffect(() => {
-        load();
-    }, [load]);
 
     async function handleStatusChange(alertId, status) {
         setBusy(true);
         try {
             await updateAlertStatus(alertId, status);
-            await load();
         } catch (e) {
             alert(e?.message || 'No se pudo actualizar');
         } finally {

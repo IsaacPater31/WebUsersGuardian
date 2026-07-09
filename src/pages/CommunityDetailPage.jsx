@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -10,7 +10,7 @@ import {
     AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getCommunityMembers } from '../services/communityService';
+import { subscribeCommunityMembers } from '../services/communityService';
 import {
     userAddCommunityMember,
     userRemoveMember,
@@ -19,7 +19,7 @@ import {
 } from '../services/userCommunityService';
 import { searchUsersByText } from '../services/userSearchService';
 import { generateInviteLink } from '../services/inviteService';
-import { getCommunityAlerts } from '../services/alertService';
+import { subscribeToCommunityAlerts } from '../services/alertService';
 import { canEditCommunity, canManageMembership, roleLabel } from '../utils/permissions';
 import { isOfficialEntityCommunity } from '../utils/communityVisibility';
 import CommunityIconDisplay from '../components/community/CommunityIconDisplay';
@@ -72,28 +72,31 @@ export default function CommunityDetailPage() {
     const [inviteUrl, setInviteUrl] = useState('');
     const [inviteErr, setInviteErr] = useState('');
 
-    const load = useCallback(async () => {
-        if (!communityId) return;
-        setLoading(true);
-        try {
-            const [memberList, alertList] = await Promise.all([
-                getCommunityMembers(communityId),
-                getCommunityAlerts(communityId),
-            ]);
-            setMembers(memberList);
-            setAlerts(alertList);
-        } catch (e) {
-            console.error(e);
-            setMembers([]);
-            setAlerts([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [communityId]);
-
     useEffect(() => {
-        load();
-    }, [load]);
+        if (!communityId) return undefined;
+        setLoading(true);
+        let membersReady = false;
+        let alertsReady = false;
+        const markReady = () => {
+            if (membersReady && alertsReady) setLoading(false);
+        };
+
+        const unsubMembers = subscribeCommunityMembers(communityId, (memberList) => {
+            setMembers(memberList);
+            membersReady = true;
+            markReady();
+        });
+        const unsubAlerts = subscribeToCommunityAlerts(communityId, (alertList) => {
+            setAlerts(alertList);
+            alertsReady = true;
+            markReady();
+        });
+
+        return () => {
+            unsubMembers();
+            unsubAlerts();
+        };
+    }, [communityId]);
 
     useEffect(() => {
         if (isEntity && activeTab === 'alerts') {
@@ -148,7 +151,6 @@ export default function CommunityDetailPage() {
             await userAddCommunityMember(communityId, u.id, newRole, memberships);
             setMemberSearch('');
             setSearchResults([]);
-            await load();
         } catch (err) {
             setSearchErr(err?.message || 'No se pudo agregar');
         } finally {
@@ -161,7 +163,6 @@ export default function CommunityDetailPage() {
         setBusy(true);
         try {
             await userRemoveMember(memberDocId, communityId, memberships);
-            await load();
         } catch (err) {
             alert(err?.message || 'Error');
         } finally {
@@ -173,7 +174,6 @@ export default function CommunityDetailPage() {
         setBusy(true);
         try {
             await userUpdateMemberRole(memberId, role, communityId, memberships);
-            await load();
             await reloadMemberships();
         } catch (err) {
             alert(err?.message || 'Error');
@@ -191,7 +191,6 @@ export default function CommunityDetailPage() {
             await userUpdateCommunity(communityId, editForm, memberships);
             setEditOpen(false);
             await reloadMemberships();
-            await load();
         } catch (err) {
             setEditErr(err?.message || 'No se pudo guardar');
         } finally {

@@ -4,7 +4,7 @@ import { Users, Shield, ChevronRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { visibleUserCommunities } from '../utils/communityVisibility';
 import { roleLabel } from '../utils/permissions';
-import { getCommunityMemberCount } from '../services/communityService';
+import { subscribeCommunityMemberCount } from '../services/communityService';
 import CommunityIconDisplay from '../components/community/CommunityIconDisplay';
 
 export default function CommunitiesPage() {
@@ -23,20 +23,16 @@ export default function CommunitiesPage() {
     }, [memberships]);
 
     useEffect(() => {
-        let cancelled = false;
-        async function loadCounts() {
-            const counts = {};
-            for (const c of communities) {
-                try {
-                    counts[c.id] = await getCommunityMemberCount(c.id);
-                } catch {
-                    counts[c.id] = 0;
-                }
-            }
-            if (!cancelled) setMemberCounts(counts);
+        if (!communities.length) {
+            setMemberCounts({});
+            return undefined;
         }
-        if (communities.length) loadCounts();
-        return () => { cancelled = true; };
+        const unsubs = communities.map((c) =>
+            subscribeCommunityMemberCount(c.id, (count) => {
+                setMemberCounts((prev) => ({ ...prev, [c.id]: count }));
+            }),
+        );
+        return () => unsubs.forEach((unsub) => unsub());
     }, [communities]);
 
     if (authLoading) {
@@ -72,7 +68,7 @@ export default function CommunitiesPage() {
                         <CommunityIconDisplay
                             iconCodePoint={c.iconCodePoint}
                             iconColor={c.iconColor}
-                            size={28}
+                            size={40}
                         />
                     </div>
                     <div className="community-card-body">

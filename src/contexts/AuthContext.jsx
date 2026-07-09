@@ -1,14 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
+    GoogleAuthProvider,
     onAuthStateChanged,
+    sendPasswordResetEmail,
     signInWithEmailAndPassword,
+    signInWithPopup,
     signOut,
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { Collections } from '../config/collections';
 import { UserFields } from '../config/firestoreFields';
-import { fetchUserMemberships } from '../services/membershipService';
+import { fetchUserMemberships, subscribeUserMemberships } from '../services/membershipService';
 import {
     canManageMembership,
     entityMemberships,
@@ -40,21 +43,18 @@ export function AuthProvider({ children }) {
     const [membershipsLoading, setMembershipsLoading] = useState(false);
 
     const reloadMemberships = useCallback(async (uid) => {
-        if (!uid) {
+        const id = uid ?? user?.uid;
+        if (!id) {
             setMemberships([]);
             return;
         }
-        setMembershipsLoading(true);
         try {
-            const data = await fetchUserMemberships(uid);
+            const data = await fetchUserMemberships(id);
             setMemberships(data);
         } catch (e) {
-            console.error('[Auth] memberships', e);
-            setMemberships([]);
-        } finally {
-            setMembershipsLoading(false);
+            console.error('[Auth] reloadMemberships', e);
         }
-    }, []);
+    }, [user?.uid]);
 
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -65,23 +65,60 @@ export function AuthProvider({ children }) {
                 } catch (e) {
                     console.warn('[Auth] ensureUserDoc', e);
                 }
-                await reloadMemberships(firebaseUser.uid);
             } else {
                 setMemberships([]);
             }
             setAuthLoading(false);
         });
         return unsub;
-    }, [reloadMemberships]);
+    }, []);
+
+    useEffect(() => {
+        if (!user?.uid) {
+            setMemberships([]);
+            setMembershipsLoading(false);
+            return undefined;
+        }
+        setMembershipsLoading(true);
+        const unsub = subscribeUserMemberships(user.uid, (data) => {
+            setMemberships(data);
+            setMembershipsLoading(false);
+        });
+        return unsub;
+    }, [user?.uid]);
 
     const login = useCallback(async (email, password) => {
         const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
         return cred.user;
     }, []);
 
+    const loginWithGoogle = useCallback(async () => {
+        try {
+            const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+            return cred.user;
+        } catch (err) {
+            if (err?.code === 'auth/popup-closed-by-user') {
+                return null;
+            }
+            throw err;
+        }
+    }, []);
+
+    const resetPassword = useCallback(async (email) => {
+        await sendPasswordResetEmail(auth, email.trim());
+    }, []);
+
     const logout = useCallback(async () => {
         await signOut(auth);
         setMemberships([]);
+    }, []);
+
+    const reloadUser = useCallback(async () => {
+        const current = auth.currentUser;
+        if (!current) return null;
+        await current.reload();
+        setUser({ ...auth.currentUser });
+        return auth.currentUser;
     }, []);
 
     const value = useMemo(() => {
@@ -101,7 +138,10 @@ export function AuthProvider({ children }) {
             manageableMemberships: manageable,
             canSendMessages,
             login,
+            loginWithGoogle,
+            resetPassword,
             logout,
+            reloadUser,
             reloadMemberships: () => reloadMemberships(user?.uid),
             getRole: (communityId) =>
                 memberships.find((m) => m.communityId === communityId)?.role ?? null,
@@ -116,7 +156,10 @@ export function AuthProvider({ children }) {
         authLoading,
         membershipsLoading,
         login,
+        loginWithGoogle,
+        resetPassword,
         logout,
+        reloadUser,
         reloadMemberships,
     ]);
 
