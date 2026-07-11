@@ -25,9 +25,18 @@ export default function MapFilterPanel({
     customEnd = null,
     onChange,
     totalVisible = 0,
+    typeOptions = null,
+    typesSectionLabel = 'Tipo de alerta',
 }) {
     const [isExpanded, setIsExpanded] = useState(true);
     const activeCount = countActiveFilters(types, status, dateRange);
+
+    const resolvedTypeOptions = typeOptions ?? Object.entries(ACTIVE_ALERT_TYPES).map(([key, cfg]) => ({
+        key,
+        label: cfg.labelEs || cfg.label || key,
+        color: cfg.color,
+        icon: cfg.icon,
+    }));
 
     const toggleType = useCallback((type) => {
         const next = types.includes(type)
@@ -92,31 +101,38 @@ export default function MapFilterPanel({
                 <div className="map-filter-section">
                     <div className="map-filter-section-title">
                         <AlertTriangle />
-                        <span>Tipo de alerta</span>
+                        <span>{typesSectionLabel}</span>
                     </div>
-                    <div className="map-filter-type-grid">
-                        {Object.entries(ACTIVE_ALERT_TYPES).map(([key, cfg]) => {
-                            const Icon   = LucideIcons[cfg.icon] || LucideIcons.AlertTriangle;
-                            const active = types.includes(key);
-                            return (
-                                <button
-                                    key={key}
-                                    className={`map-filter-type-chip${active ? ' active' : ''}`}
-                                    style={active ? { '--chip-color': cfg.color } : {}}
-                                    onClick={() => toggleType(key)}
-                                    title={cfg.labelEs}
-                                >
-                                    <span
-                                        className="map-filter-type-dot"
-                                        style={{ background: cfg.color }}
+                    {resolvedTypeOptions.length === 0 ? (
+                        <p className="admin-muted" style={{ margin: 0, fontSize: 12 }}>
+                            No hay tipos configurados en tus reportes.
+                        </p>
+                    ) : (
+                        <div className="map-filter-type-grid">
+                            {resolvedTypeOptions.map((opt) => {
+                                const Icon = LucideIcons[opt.icon] || LucideIcons.AlertTriangle;
+                                const active = types.includes(opt.key);
+                                return (
+                                    <button
+                                        key={opt.key}
+                                        type="button"
+                                        className={`map-filter-type-chip${active ? ' active' : ''}`}
+                                        style={active ? { '--chip-color': opt.color } : {}}
+                                        onClick={() => toggleType(opt.key)}
+                                        title={opt.label}
                                     >
-                                        <Icon />
-                                    </span>
-                                    <span className="map-filter-type-label">{cfg.labelEs}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                                        <span
+                                            className="map-filter-type-dot"
+                                            style={{ background: opt.color }}
+                                        >
+                                            <Icon />
+                                        </span>
+                                        <span className="map-filter-type-label">{opt.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Estado ── */}

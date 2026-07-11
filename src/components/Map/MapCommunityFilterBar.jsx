@@ -15,6 +15,8 @@ export default function MapCommunityFilterBar({
     communities = [],
     selectedIds = null,
     onChange,
+    title = 'Comunidades',
+    ariaLabel = 'Filtrar alertas por comunidad',
 }) {
     const [page, setPage] = useState(0);
     const totalPages = Math.max(1, Math.ceil(communities.length / PAGE_SIZE));
@@ -51,12 +53,12 @@ export default function MapCommunityFilterBar({
     return (
         <aside
             className="map-community-filter-bar"
-            aria-label="Filtrar alertas por comunidad"
+            aria-label={ariaLabel}
         >
             <div className="map-community-filter-bar-head">
                 <div className="map-community-filter-bar-title">
                     <Users size={14} aria-hidden />
-                    <span>Comunidades</span>
+                    <span>{title}</span>
                     <span className="map-community-filter-bar-count" aria-live="polite">
                         {isAll ? 'Todas' : selectedCount === 0 ? 'Ninguna' : `${selectedCount} sel.`}
                     </span>
@@ -98,7 +100,7 @@ export default function MapCommunityFilterBar({
                 </div>
             </div>
 
-            <div className="map-community-filter-chips" role="group" aria-label="Comunidades">
+            <div className="map-community-filter-chips" role="group" aria-label={title}>
                 {pageItems.map((c) => {
                     const active = isAll || selectedIds.includes(c.id);
                     return (

@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Building2 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { subscribeToCommunityAlerts, updateAlertStatus } from '../services/alertService';
-import { AlertStatus, getAlertColor, getAlertIcon, getAlertLabel } from '../config/alertTypes';
-import { canViewEntityInbox } from '../utils/permissions';
+import { subscribeToCommunityAlerts } from '../services/alertService';
+import { AlertStatus, getAlertColor, getAlertIcon, getAlertLabel, getTimeAgo } from '../config/alertTypes';
 import { getSubtypeLabel } from '../utils/alertSubtype';
 import { filterAlertsByUser } from '../utils/alertScope';
 import AlertDetailModal from '../components/AlertDetailModal';
-import { getTimeAgo } from '../config/alertTypes';
 
-function ReportRow({ alert, onClick, canManage, onMarkAttended, busy }) {
-    const color = getAlertColor(alert.alertType);
-    const iconName = getAlertIcon(alert.alertType);
+function ReportRow({ alert, onClick }) {
+    const color = getAlertColor(alert.alertType, alert);
+    const iconName = getAlertIcon(alert.alertType, alert);
     const Icon = LucideIcons[iconName] || LucideIcons.AlertTriangle;
     const sub = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
     const isAttended = alert.alertStatus === AlertStatus.ATTENDED;
+    const label = getAlertLabel(alert.alertType, alert);
 
     return (
         <div
@@ -30,13 +29,13 @@ function ReportRow({ alert, onClick, canManage, onMarkAttended, busy }) {
             }}
             role="button"
             tabIndex={0}
-            aria-label={`Reporte ${getAlertLabel(alert.alertType)}`}
+            aria-label={`Reporte ${label}`}
         >
             <div className="report-row-icon" style={{ background: `${color}15` }}>
                 <Icon style={{ color, width: 18, height: 18 }} aria-hidden />
             </div>
             <div className="report-row-body">
-                <div className="report-row-title">{getAlertLabel(alert.alertType)}</div>
+                <div className="report-row-title">{label}</div>
                 {sub && <div className="report-row-sub">{sub}</div>}
                 <div className="report-row-meta">
                     {alert.isAnonymous ? 'Anónimo' : (alert.userName || alert.userEmail || 'Usuario')}
@@ -44,40 +43,23 @@ function ReportRow({ alert, onClick, canManage, onMarkAttended, busy }) {
                     {getTimeAgo(alert.timestamp)}
                 </div>
             </div>
-            {canManage && !isAttended ? (
-                <button
-                    type="button"
-                    className="report-attend-btn"
-                    disabled={busy}
-                    aria-label="Marcar reporte como atendido"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onMarkAttended(alert.id);
-                    }}
-                >
-                    <CheckCircle2 size={14} aria-hidden />
-                    Atender
-                </button>
-            ) : (
-                <span className="report-status-pill">
-                    {isAttended ? 'Atendido' : 'Pendiente'}
-                </span>
-            )}
+            <span className="report-status-pill">
+                {isAttended ? 'Atendido' : 'Pendiente'}
+            </span>
         </div>
     );
 }
 
+/** Flat “my reports” view for entity members who are not officials. */
 export default function EntityReportsPage() {
     const { id: entityId } = useParams();
     const { user, memberships, loading: authLoading } = useAuth();
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState(null);
-    const [busy, setBusy] = useState(false);
 
     const membership = memberships.find((m) => m.communityId === entityId);
     const entity = membership?.community;
-    const isOfficial = entity ? canViewEntityInbox(entity, membership.role) : false;
 
     useEffect(() => {
         if (!entityId || !user) return undefined;
@@ -88,22 +70,11 @@ export default function EntityReportsPage() {
                 const tb = b.timestamp?.toDate?.() ?? new Date(0);
                 return tb - ta;
             });
-            setReports(isOfficial ? sorted : filterAlertsByUser(sorted, user.uid));
+            setReports(filterAlertsByUser(sorted, user.uid));
             setLoading(false);
         });
         return unsub;
-    }, [entityId, user, isOfficial]);
-
-    async function handleMarkAttended(alertId) {
-        setBusy(true);
-        try {
-            await updateAlertStatus(alertId, AlertStatus.ATTENDED);
-        } catch (e) {
-            window.alert(e?.message || 'No se pudo actualizar');
-        } finally {
-            setBusy(false);
-        }
-    }
+    }, [entityId, user]);
 
     if (authLoading || loading) {
         return (
@@ -137,9 +108,7 @@ export default function EntityReportsPage() {
                         <div>
                             <h2 className="section-title">{entity.name}</h2>
                             <p className="section-subtitle">
-                                {isOfficial
-                                    ? 'Bandeja de reportes recibidos'
-                                    : 'Historial de reportes que has enviado'}
+                                Historial de reportes que has enviado
                             </p>
                         </div>
                     </div>
@@ -147,7 +116,7 @@ export default function EntityReportsPage() {
                 <div className="section-body">
                     {reports.length === 0 ? (
                         <p className="admin-muted admin-empty-inset">
-                            {isOfficial ? 'No hay reportes en esta entidad.' : 'Aún no has enviado reportes a esta entidad.'}
+                            Aún no has enviado reportes a esta entidad.
                         </p>
                     ) : (
                         <div className="report-list">
@@ -156,9 +125,6 @@ export default function EntityReportsPage() {
                                     key={r.id}
                                     alert={r}
                                     onClick={setSelected}
-                                    canManage={isOfficial}
-                                    onMarkAttended={handleMarkAttended}
-                                    busy={busy}
                                 />
                             ))}
                         </div>
@@ -166,17 +132,10 @@ export default function EntityReportsPage() {
                 </div>
             </section>
 
-            {isOfficial && (
-                <p className="admin-muted">
-                    <Link to={`/communities/${entityId}`}>Gestionar miembros y configuración →</Link>
-                </p>
-            )}
-
             {selected && (
                 <AlertDetailModal
                     alert={selected}
                     onClose={() => setSelected(null)}
-                    canMarkOverride={isOfficial && selected.alertStatus !== AlertStatus.ATTENDED}
                 />
             )}
         </>

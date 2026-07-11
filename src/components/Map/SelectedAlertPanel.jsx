@@ -13,7 +13,7 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
     const { memberships } = useAuth();
     const [communityNames, setCommunityNames] = useState([]);
     const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
-    const main = getAlertLabel(alert.alertType);
+    const main = getAlertLabel(alert.alertType, alert);
     const sub = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
     const isAttended = localStatus === AlertStatus.ATTENDED;
     const canMark = canMarkAlertAttended(alert, memberships);
@@ -40,11 +40,11 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
         setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
     }, [alert?.id, alert?.alertStatus]);
 
-    const Icon = LucideIcons[getAlertIcon(alert.alertType)] || LucideIcons.AlertTriangle;
+    const Icon = LucideIcons[getAlertIcon(alert.alertType, alert)] || LucideIcons.AlertTriangle;
 
     return (
         <div className="map-alert-panel" role="region" aria-label="Resumen de alerta seleccionada">
-            <div className="map-alert-panel-header" style={{ background: getAlertColor(alert.alertType) }}>
+            <div className="map-alert-panel-header" style={{ background: getAlertColor(alert.alertType, alert) }}>
                 <div className="map-alert-panel-header-icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
                     <Icon aria-hidden />
                 </div>

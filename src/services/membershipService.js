@@ -13,6 +13,7 @@ import {
 import { db } from '../firebase';
 import { Collections } from '../config/collections';
 import { MemberFields } from '../config/firestoreFields';
+import { normalizeEntityReportTypes } from '../utils/entityReportTypes';
 
 function parseCommunity(docSnap) {
     const d = docSnap.data() || {};
@@ -27,9 +28,7 @@ function parseCommunity(docSnap) {
         iconCodePoint: d.icon_code_point ?? null,
         iconColor: d.icon_color ?? null,
         reportButtonColor: d.report_button_color ?? null,
-        reportAlertTypes: Array.isArray(d.report_alert_types)
-            ? d.report_alert_types.filter((t) => typeof t === 'string' && t)
-            : [],
+        reportAlertTypes: normalizeEntityReportTypes(d.report_alert_types),
     };
 }
 

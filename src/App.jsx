@@ -9,7 +9,7 @@ import AlertsPage from './pages/AlertsPage';
 import CommunitiesPage from './pages/CommunitiesPage';
 import CommunityDetailPage from './pages/CommunityDetailPage';
 import ReportsPage from './pages/ReportsPage';
-import EntityReportsPage from './pages/EntityReportsPage';
+import EntityDetailPage from './pages/EntityDetailPage';
 import MessagesPage from './pages/MessagesPage';
 import ProfilePage from './pages/ProfilePage';
 
@@ -28,7 +28,7 @@ export default function App() {
                             <Route path="/communities" element={<CommunitiesPage />} />
                             <Route path="/communities/:id" element={<CommunityDetailPage />} />
                             <Route path="/reports" element={<ReportsPage />} />
-                            <Route path="/reports/:id" element={<EntityReportsPage />} />
+                            <Route path="/reports/:id" element={<EntityDetailPage />} />
                             <Route path="/messages" element={<MessagesPage />} />
                             <Route path="/profile" element={<ProfilePage />} />
                         </Route>

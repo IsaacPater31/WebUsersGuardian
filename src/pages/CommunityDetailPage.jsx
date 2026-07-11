@@ -20,8 +20,14 @@ import {
 import { searchUsersByText } from '../services/userSearchService';
 import { generateInviteLink } from '../services/inviteService';
 import { subscribeToCommunityAlerts } from '../services/alertService';
-import { canEditCommunity, canManageMembership, roleLabel } from '../utils/permissions';
+import {
+    canEditCommunity,
+    canManageMembership,
+    canViewEntityInbox,
+    roleLabel,
+} from '../utils/permissions';
 import { isOfficialEntityCommunity } from '../utils/communityVisibility';
+import { AlertStatus } from '../config/alertTypes';
 import CommunityIconDisplay from '../components/community/CommunityIconDisplay';
 import CommunityIconPickerGrid from '../components/community/CommunityIconPickerGrid';
 import EntityAlertTypesPicker from '../components/community/EntityAlertTypesPicker';
@@ -29,6 +35,7 @@ import {
     DEFAULT_ICON_CODE_POINT,
     DEFAULT_ICON_COLOR,
 } from '../config/communityIconCatalog';
+import { normalizeEntityReportTypes } from '../utils/entityReportTypes';
 import AlertDetailModal from '../components/AlertDetailModal';
 import AlertCard from '../components/AlertCard';
 
@@ -50,6 +57,11 @@ export default function CommunityDetailPage() {
     const isEntity = community ? isOfficialEntityCommunity(community) : false;
     const canManage = community ? canManageMembership(community, membership?.role) : false;
     const canEdit = community ? canEditCommunity(community, membership?.role) : false;
+    const canViewInbox = community
+        ? canViewEntityInbox(community, membership?.role)
+        : false;
+    /** Entity officials see Alertas like a community; other entity members do not. */
+    const showAlertsTab = !isEntity || canViewInbox;
     const roles = isEntity ? ENTITY_ROLES : BASE_ROLES;
 
     const [members, setMembers] = useState([]);
@@ -87,7 +99,12 @@ export default function CommunityDetailPage() {
             markReady();
         });
         const unsubAlerts = subscribeToCommunityAlerts(communityId, (alertList) => {
-            setAlerts(alertList);
+            const sorted = [...alertList].sort((a, b) => {
+                const ta = a.timestamp?.toDate?.() ?? new Date(0);
+                const tb = b.timestamp?.toDate?.() ?? new Date(0);
+                return tb - ta;
+            });
+            setAlerts(sorted);
             alertsReady = true;
             markReady();
         });
@@ -99,10 +116,10 @@ export default function CommunityDetailPage() {
     }, [communityId]);
 
     useEffect(() => {
-        if (isEntity && activeTab === 'alerts') {
+        if (!showAlertsTab && activeTab === 'alerts') {
             setActiveTab('members');
         }
-    }, [isEntity, activeTab]);
+    }, [showAlertsTab, activeTab]);
 
     useEffect(() => {
         if (!community) return;
@@ -112,7 +129,7 @@ export default function CommunityDetailPage() {
             iconCodePoint: community.iconCodePoint ?? DEFAULT_ICON_CODE_POINT,
             iconColor: community.iconColor || DEFAULT_ICON_COLOR,
             reportButtonColor: community.reportButtonColor || '#0D1B3E',
-            reportAlertTypes: [...(community.reportAlertTypes || [])],
+            reportAlertTypes: normalizeEntityReportTypes(community.reportAlertTypes),
             allowForwardToEntities: community.allowForwardToEntities !== false,
         });
     }, [community]);
@@ -298,7 +315,7 @@ export default function CommunityDetailPage() {
             )}
 
             <div className="community-tabs">
-                {!isEntity && (
+                {showAlertsTab && (
                     <button
                         type="button"
                         className={`community-tab${activeTab === 'alerts' ? ' active' : ''}`}
@@ -316,11 +333,15 @@ export default function CommunityDetailPage() {
                 </button>
             </div>
 
-            {activeTab === 'alerts' && !isEntity && (
+            {activeTab === 'alerts' && showAlertsTab && (
                 <section className="section section--dash">
                     <div className="section-body">
                         {alerts.length === 0 ? (
-                            <p className="admin-muted admin-empty-inset">Sin alertas en esta comunidad.</p>
+                            <p className="admin-muted admin-empty-inset">
+                                {isEntity
+                                    ? 'No hay reportes en esta entidad.'
+                                    : 'Sin alertas en esta comunidad.'}
+                            </p>
                         ) : (
                             alerts.map((a) => (
                                 <AlertCard key={a.id} alert={a} onClick={setSelectedAlert} />
@@ -541,7 +562,15 @@ export default function CommunityDetailPage() {
             )}
 
             {selectedAlert && (
-                <AlertDetailModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
+                <AlertDetailModal
+                    alert={selectedAlert}
+                    onClose={() => setSelectedAlert(null)}
+                    canMarkOverride={
+                        canViewInbox
+                            ? selectedAlert.alertStatus !== AlertStatus.ATTENDED
+                            : null
+                    }
+                />
             )}
         </>
     );

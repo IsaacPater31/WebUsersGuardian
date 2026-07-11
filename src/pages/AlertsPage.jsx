@@ -1,49 +1,75 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { subscribeToAlertsFiltered } from '../services/alertService';
 import { getAlertColor, getAlertLabel } from '../config/alertTypes';
 import AlertCard from '../components/AlertCard';
 import AlertDetailModal from '../components/AlertDetailModal';
-import AlertFilterPanel, { EMPTY_FILTERS } from '../components/AlertFilterPanel';
-import { countActiveFilters } from '../config/filterOptions';
+import AlertFilterPanel, {
+    EMPTY_FILTERS,
+    countActiveFiltersCompat,
+} from '../components/AlertFilterPanel';
+import ViewScopeToggle from '../components/ViewScopeToggle';
 import { useAuth } from '../contexts/AuthContext';
+import { useViewScope } from '../hooks/useViewScope';
 import { filterAlertsByCommunities } from '../utils/alertScope';
 
-// ─── Labels de los filtros activos ────────────────────────────────────────────
-
 const STATUS_LABELS = {
-    pending:  'No atendidas',
+    pending: 'No atendidas',
     attended: 'Atendidas',
 };
 
 const DATE_LABELS = {
-    today:     'Hoy',
+    today: 'Hoy',
     yesterday: 'Ayer',
-    week:      'Esta semana',
-    '7days':   'Últimos 7 días',
-    month:     'Este mes',
-    custom:    'Personalizado',
+    week: 'Esta semana',
+    '7days': 'Últimos 7 días',
+    month: 'Este mes',
+    custom: 'Personalizado',
 };
 
 export default function AlertsPage() {
-    const { normalCommunityIds, loading: authLoading } = useAuth();
-    const [alerts, setAlerts]               = useState([]);
-    const [loading, setLoading]             = useState(true);
+    const { loading: authLoading } = useAuth();
+    const {
+        scope,
+        setScope,
+        showToggle,
+        scopeIds,
+        typeOptions,
+        isReportsScope,
+        hasAnyScope,
+        ready,
+    } = useViewScope();
+
+    const [alerts, setAlerts] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
-    const [filters, setFilters]             = useState(EMPTY_FILTERS);
+    const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [showFilterPanel, setShowFilterPanel] = useState(false);
 
-    // Suscripción reactiva con filtros
+    useEffect(() => {
+        setFilters((prev) => ({ ...prev, types: [] }));
+        setSelectedAlert(null);
+        setShowFilterPanel(false);
+    }, [scope]);
+
+    const typeLabelByKey = useMemo(() => {
+        const map = new Map();
+        for (const opt of typeOptions) {
+            map.set(opt.key, opt);
+        }
+        return map;
+    }, [typeOptions]);
+
     const subscribe = useCallback((activeFilters) => {
         setLoading(true);
 
         const unsub = subscribeToAlertsFiltered(activeFilters, (data) => {
-            setAlerts(filterAlertsByCommunities(data, normalCommunityIds));
+            setAlerts(filterAlertsByCommunities(data, scopeIds));
             setLoading(false);
         });
 
         return unsub;
-    }, [normalCommunityIds]);
+    }, [scopeIds]);
 
     useEffect(() => {
         const unsub = subscribe(filters);
@@ -56,19 +82,18 @@ export default function AlertsPage() {
 
     const clearFilters = () => setFilters(EMPTY_FILTERS);
 
-    const activeCount = countActiveFilters(filters);
-    const hasFilters  = activeCount > 0;
-
-    // ─── Chips de filtros activos ─────────────────────────────────────────────
+    const activeCount = countActiveFiltersCompat(filters);
+    const hasFilters = activeCount > 0;
 
     const activeChips = [];
 
     if (filters.types.length > 0) {
         filters.types.forEach((type) => {
+            const opt = typeLabelByKey.get(type);
             activeChips.push({
                 key: `type-${type}`,
-                label: getAlertLabel(type),
-                color: getAlertColor(type),
+                label: opt?.label || getAlertLabel(type),
+                color: opt?.color || getAlertColor(type),
                 onRemove: () =>
                     setFilters((prev) => ({
                         ...prev,
@@ -102,7 +127,7 @@ export default function AlertsPage() {
         });
     }
 
-    if (authLoading || (loading && alerts.length === 0)) {
+    if (authLoading || !ready) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
@@ -110,34 +135,29 @@ export default function AlertsPage() {
         );
     }
 
-    if (normalCommunityIds.length === 0) {
+    if (!hasAnyScope) {
         return (
             <div className="empty-state">
-                <div className="empty-state-title">Sin comunidades</div>
+                <div className="empty-state-title">Sin datos</div>
                 <div className="empty-state-desc">
-                    Únete a una comunidad desde la app móvil para ver alertas aquí.
+                    Únete a una comunidad o a un reporte (entidad) desde la app móvil para ver alertas aquí.
                 </div>
-            </div>
-        );
-    }
-
-    // ─── Render ───────────────────────────────────────────────────────────────
-
-    if (loading && alerts.length === 0) {
-        return (
-            <div className="loading-container">
-                <div className="loading-spinner" />
             </div>
         );
     }
 
     return (
         <>
-            {/* ── Barra de herramientas de filtros ── */}
+            {showToggle && (
+                <div className="view-scope-toggle-wrap">
+                    <ViewScopeToggle scope={scope} onChange={setScope} show />
+                </div>
+            )}
+
             <div className="filter-toolbar">
-                {/* Botón principal de filtros */}
                 <button
                     id="alerts-filter-btn"
+                    type="button"
                     className={`filter-toolbar-btn${hasFilters ? ' active' : ''}`}
                     onClick={() => setShowFilterPanel(true)}
                 >
@@ -148,7 +168,6 @@ export default function AlertsPage() {
                     )}
                 </button>
 
-                {/* Chips de filtros activos */}
                 {activeChips.map((chip) => (
                     <span
                         key={chip.key}
@@ -157,22 +176,29 @@ export default function AlertsPage() {
                     >
                         {chip.label}
                         <button
+                            type="button"
                             onClick={chip.onRemove}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'inherit' }}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                color: 'inherit',
+                            }}
                         >
                             <LucideIcons.X style={{ width: 11, height: 11 }} />
                         </button>
                     </span>
                 ))}
 
-                {/* Botón limpiar todo */}
                 {hasFilters && (
-                    <button className="filter-clear-all-btn" onClick={clearFilters}>
+                    <button type="button" className="filter-clear-all-btn" onClick={clearFilters}>
                         Limpiar todo
                     </button>
                 )}
 
-                {/* Indicador de carga */}
                 {loading && alerts.length > 0 && (
                     <span className="filter-loading-indicator">
                         <span className="filter-loading-dot" />
@@ -181,7 +207,6 @@ export default function AlertsPage() {
                 )}
             </div>
 
-            {/* ── Sección de alertas ── */}
             <div className="section">
                 <div className="section-header">
                     <div className="section-header-left">
@@ -189,7 +214,9 @@ export default function AlertsPage() {
                             <LucideIcons.AlertTriangle style={{ color: '#FF3B30' }} />
                         </div>
                         <h3 className="section-title">
-                            {hasFilters ? 'Alertas filtradas' : 'Todas las alertas'}
+                            {hasFilters
+                                ? (isReportsScope ? 'Reportes filtrados' : 'Alertas filtradas')
+                                : (isReportsScope ? 'Todos los reportes' : 'Todas las alertas')}
                         </h3>
                     </div>
                     <span
@@ -201,19 +228,28 @@ export default function AlertsPage() {
                 </div>
 
                 <div className="section-body">
-                    {alerts.length === 0 ? (
+                    {loading && alerts.length === 0 ? (
+                        <div className="loading-container" style={{ minHeight: 160 }}>
+                            <div className="loading-spinner" />
+                        </div>
+                    ) : alerts.length === 0 ? (
                         <div className="empty-state">
                             <div className="empty-state-icon">
                                 <LucideIcons.CheckCircle />
                             </div>
-                            <div className="empty-state-title">Sin alertas</div>
+                            <div className="empty-state-title">
+                                {isReportsScope ? 'Sin reportes' : 'Sin alertas'}
+                            </div>
                             <div className="empty-state-desc">
                                 {hasFilters
-                                    ? 'No hay alertas que coincidan con los filtros aplicados.'
-                                    : 'No hay alertas recientes.'}
+                                    ? 'No hay resultados que coincidan con los filtros aplicados.'
+                                    : (isReportsScope
+                                        ? 'No hay reportes recientes en tus entidades.'
+                                        : 'No hay alertas recientes.')}
                             </div>
                             {hasFilters && (
                                 <button
+                                    type="button"
                                     style={{
                                         marginTop: 12,
                                         padding: '8px 18px',
@@ -242,16 +278,16 @@ export default function AlertsPage() {
                 </div>
             </div>
 
-            {/* ── Panel de filtros ── */}
             {showFilterPanel && (
                 <AlertFilterPanel
                     filters={filters}
                     onChange={applyFilters}
                     onClose={() => setShowFilterPanel(false)}
+                    typeOptions={typeOptions}
+                    typesSectionLabel={isReportsScope ? 'TIPO DE REPORTE' : 'TIPO DE ALERTA'}
                 />
             )}
 
-            {/* ── Modal de detalle ── */}
             {selectedAlert && (
                 <AlertDetailModal
                     alert={selectedAlert}

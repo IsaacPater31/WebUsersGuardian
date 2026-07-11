@@ -55,7 +55,7 @@ export function manageableMemberships(memberships) {
 
 /**
  * Community admins may mark normal-community alerts as attended (one-way).
- * Entity officials use Reportes (pass canMarkOverride on that page) — not map/alerts.
+ * Entity officials may mark entity report alerts as attended.
  */
 export function canMarkAlertAttended(alert, memberships) {
     if (!alert || !memberships?.length) return false;
@@ -66,7 +66,9 @@ export function canMarkAlertAttended(alert, memberships) {
 
     return memberships.some((m) => {
         if (!ids.includes(m.communityId) || !m.community) return false;
-        if (isOfficialEntityCommunity(m.community)) return false;
+        if (isOfficialEntityCommunity(m.community)) {
+            return m.role === MemberFields.roleOfficial;
+        }
         return m.role === MemberFields.roleAdmin;
     });
 }

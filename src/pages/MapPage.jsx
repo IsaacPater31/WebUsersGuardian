@@ -11,39 +11,50 @@ import MapAlertCountBadge from '../components/Map/MapAlertCountBadge';
 import RequestLocationOnFirstInteraction from '../components/Map/RequestLocationOnFirstInteraction';
 import MapFilterPanel from '../components/Map/MapFilterPanel';
 import MapCommunityFilterBar from '../components/Map/MapCommunityFilterBar';
+import ViewScopeToggle from '../components/ViewScopeToggle';
 import { DEFAULT_FILTERS } from '../config/filterOptions';
 import { useAuth } from '../contexts/AuthContext';
+import { useViewScope } from '../hooks/useViewScope';
 import { filterAlertsByCommunities } from '../utils/alertScope';
-import { isOfficialEntityCommunity } from '../utils/communityVisibility';
 
-
-// ─── MapPage ──────────────────────────────────────────────────────────────────
 export default function MapPage() {
-    const { memberships, normalCommunityIds, loading: authLoading } = useAuth();
+    const { loading: authLoading } = useAuth();
+    const {
+        scope,
+        setScope,
+        showToggle,
+        scopeIds,
+        scopeCommunities,
+        typeOptions,
+        isReportsScope,
+        hasAnyScope,
+        ready,
+    } = useViewScope();
+
     const [rawAlerts, setRawAlerts] = useState([]);
     const [alertsLoading, setAlertsLoading] = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filters, setFilters] = useState(DEFAULT_FILTERS);
-    /** null = all membership communities; [] = none; [ids] = subset */
+    /** null = all scope communities; [] = none; [ids] = subset */
     const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
     const { position: userPosition, error: geoError, request: requestLocation } = useUserGeolocation();
 
     const unsubRef = useRef(null);
 
-    const mapCommunities = useMemo(() => (
-        memberships
-            .filter((m) => m.community && !isOfficialEntityCommunity(m.community))
-            .map((m) => ({ id: m.communityId, name: m.community.name || 'Comunidad' }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'es'))
-    ), [memberships]);
+    // Reset selection + type filters when switching Comunidades ↔ Reportes
+    useEffect(() => {
+        setSelectedCommunityIds(null);
+        setFilters((prev) => ({ ...prev, types: [] }));
+        setSelectedAlert(null);
+        setShowModal(false);
+    }, [scope]);
 
     const effectiveCommunityIds = useMemo(() => {
-        if (selectedCommunityIds == null) return normalCommunityIds;
+        if (selectedCommunityIds == null) return scopeIds;
         return selectedCommunityIds;
-    }, [selectedCommunityIds, normalCommunityIds]);
+    }, [selectedCommunityIds, scopeIds]);
 
-    // Type / status / date → Firestore subscription only
     useEffect(() => {
         if (unsubRef.current) {
             unsubRef.current();
@@ -67,7 +78,6 @@ export default function MapPage() {
         };
     }, [filters]);
 
-    // Community filter is client-side AND with type/status/date results
     const alerts = useMemo(
         () => filterAlertsByCommunities(rawAlerts, effectiveCommunityIds),
         [rawAlerts, effectiveCommunityIds],
@@ -77,7 +87,11 @@ export default function MapPage() {
         setFilters(newFilters);
     }, []);
 
-    if (authLoading) {
+    const handleScopeChange = useCallback((next) => {
+        setScope(next);
+    }, [setScope]);
+
+    if (authLoading || !ready) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
@@ -85,12 +99,12 @@ export default function MapPage() {
         );
     }
 
-    if (normalCommunityIds.length === 0) {
+    if (!hasAnyScope) {
         return (
             <div className="empty-state" style={{ margin: 'var(--space-6)' }}>
-                <div className="empty-state-title">Sin comunidades</div>
+                <div className="empty-state-title">Sin datos en el mapa</div>
                 <div className="empty-state-desc">
-                    Únete a una comunidad desde la app móvil para ver alertas en el mapa.
+                    Únete a una comunidad o a un reporte (entidad) desde la app móvil para ver alertas aquí.
                 </div>
             </div>
         );
@@ -98,6 +112,11 @@ export default function MapPage() {
 
     return (
         <div className="map-page has-community-filter">
+            {showToggle && (
+                <div className="view-scope-toggle-wrap map-scope-toggle-wrap">
+                    <ViewScopeToggle scope={scope} onChange={handleScopeChange} show />
+                </div>
+            )}
             <div className="map-container">
                 <MapContainer
                     center={userPosition || DEFAULT_CENTER}
@@ -139,12 +158,20 @@ export default function MapPage() {
                     customEnd={filters.customEnd}
                     onChange={handleFiltersChange}
                     totalVisible={alerts.length}
+                    typeOptions={typeOptions}
+                    typesSectionLabel={isReportsScope ? 'Tipo de reporte' : 'Tipo de alerta'}
                 />
 
                 <MapCommunityFilterBar
-                    communities={mapCommunities}
+                    communities={scopeCommunities}
                     selectedIds={selectedCommunityIds}
                     onChange={setSelectedCommunityIds}
+                    title={isReportsScope ? 'Reportes' : 'Comunidades'}
+                    ariaLabel={
+                        isReportsScope
+                            ? 'Filtrar por entidad de reportes'
+                            : 'Filtrar alertas por comunidad'
+                    }
                 />
 
                 {!alertsLoading && <MapAlertCountBadge count={alerts.length} />}

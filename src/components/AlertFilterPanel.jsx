@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { ACTIVE_ALERT_TYPES, getAlertColor, getAlertLabel } from '../config/alertTypes';
 import { STATUS_OPTIONS, DATE_OPTIONS, DEFAULT_FILTERS, countActiveFilters } from '../config/filterOptions';
@@ -7,7 +7,12 @@ import { STATUS_OPTIONS, DATE_OPTIONS, DEFAULT_FILTERS, countActiveFilters } fro
 export { DEFAULT_FILTERS as EMPTY_FILTERS };
 
 // Active type keys derived from config — no hardcoding
-const ACTIVE_TYPE_KEYS = Object.keys(ACTIVE_ALERT_TYPES);
+const DEFAULT_TYPE_OPTIONS = Object.entries(ACTIVE_ALERT_TYPES).map(([key, meta]) => ({
+    key,
+    label: meta.labelEs || meta.label || key,
+    color: meta.color,
+    icon: meta.icon,
+}));
 
 /** Signature-compatible wrapper so callers that pass the full filters object still work. */
 export function countActiveFiltersCompat(filters) {
@@ -17,8 +22,21 @@ export function countActiveFiltersCompat(filters) {
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
-export default function AlertFilterPanel({ filters, onChange, onClose }) {
+export default function AlertFilterPanel({
+    filters,
+    onChange,
+    onClose,
+    typeOptions = null,
+    typesSectionLabel = 'TIPO DE ALERTA',
+}) {
     const [local, setLocal] = useState({ ...filters });
+    const resolvedTypeOptions = Array.isArray(typeOptions)
+        ? typeOptions
+        : DEFAULT_TYPE_OPTIONS;
+
+    useEffect(() => {
+        setLocal({ ...filters });
+    }, [filters]);
 
     const toggleType = (type) => {
         setLocal((prev) => ({
@@ -90,34 +108,40 @@ export default function AlertFilterPanel({ filters, onChange, onClose }) {
                     <div className="filter-section">
                         <div className="filter-section-label">
                             <LucideIcons.Tag style={{ width: 12, height: 12 }} />
-                            TIPO DE ALERTA
+                            {typesSectionLabel}
                         </div>
-                        <div className="filter-type-grid">
-                            {ACTIVE_TYPE_KEYS.map((type) => {
-                                const isActive = local.types.includes(type);
-                                const color    = getAlertColor(type);
-                                const iconName = ACTIVE_ALERT_TYPES[type]?.icon;
-                                const Icon     = LucideIcons[iconName] || LucideIcons.AlertTriangle;
-                                return (
-                                    <button
-                                        key={type}
-                                        className={`filter-type-chip${isActive ? ' active' : ''}`}
-                                        style={isActive
-                                            ? { borderColor: color, background: `${color}18`, color }
-                                            : {}}
-                                        onClick={() => toggleType(type)}
-                                    >
-                                        <span
-                                            className="filter-type-chip-dot"
-                                            style={{ background: color }}
+                        {resolvedTypeOptions.length === 0 ? (
+                            <p className="admin-muted" style={{ margin: 0, fontSize: 13 }}>
+                                No hay tipos configurados en tus reportes.
+                            </p>
+                        ) : (
+                            <div className="filter-type-grid">
+                                {resolvedTypeOptions.map((opt) => {
+                                    const isActive = local.types.includes(opt.key);
+                                    const color = opt.color || getAlertColor(opt.key);
+                                    const Icon = LucideIcons[opt.icon] || LucideIcons.AlertTriangle;
+                                    return (
+                                        <button
+                                            key={opt.key}
+                                            type="button"
+                                            className={`filter-type-chip${isActive ? ' active' : ''}`}
+                                            style={isActive
+                                                ? { borderColor: color, background: `${color}18`, color }
+                                                : {}}
+                                            onClick={() => toggleType(opt.key)}
                                         >
-                                            <Icon style={{ width: 9, height: 9, color: 'white' }} />
-                                        </span>
-                                        {getAlertLabel(type)}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                                            <span
+                                                className="filter-type-chip-dot"
+                                                style={{ background: color }}
+                                            >
+                                                <Icon style={{ width: 9, height: 9, color: 'white' }} />
+                                            </span>
+                                            {opt.label || getAlertLabel(opt.key)}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     <div className="filter-panel-divider" />

@@ -13,11 +13,12 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Collections } from '../config/collections';
-import { CommunityFields, MemberFields } from '../config/firestoreFields';
+import { CommunityFields, MemberFields, UserFields } from '../config/firestoreFields';
 import { canManageMembership } from '../utils/permissions';
 import { isOfficialEntityCommunity } from '../utils/communityVisibility';
 import { getCommunityMembers } from './communityService';
 import { InboxKinds, notifyMembershipEvent } from './inboxNotifyService';
+import { normalizeEntityReportTypes } from '../utils/entityReportTypes';
 
 const membersCol = () => collection(db, Collections.COMMUNITY_MEMBERS);
 
@@ -43,6 +44,24 @@ async function getAllowedRoles(community) {
     return isOfficialEntityCommunity(community) ? ENTITY_ROLES : NON_ENTITY_ROLES;
 }
 
+async function getUserDisplayName(userId) {
+    if (!userId) return null;
+    try {
+        const snap = await getDoc(doc(db, Collections.USERS, userId));
+        if (!snap.exists()) return null;
+        const d = snap.data() || {};
+        return (
+            d[UserFields.displayName]
+            || d[UserFields.fullName]
+            || d[UserFields.name]
+            || d[UserFields.email]
+            || null
+        );
+    } catch {
+        return null;
+    }
+}
+
 export async function userUpdateCommunity(communityId, patch, memberships) {
     const membership = await assertCanManage(communityId, memberships);
     const ref = doc(db, Collections.COMMUNITIES, communityId);
@@ -62,9 +81,9 @@ export async function userUpdateCommunity(communityId, patch, memberships) {
             data[CommunityFields.reportButtonColor] = patch.reportButtonColor;
         }
         if (patch.reportAlertTypes !== undefined) {
-            data[CommunityFields.reportAlertTypes] = Array.isArray(patch.reportAlertTypes)
-                ? patch.reportAlertTypes
-                : [];
+            data[CommunityFields.reportAlertTypes] = normalizeEntityReportTypes(
+                patch.reportAlertTypes,
+            );
         }
     }
     await updateDoc(ref, data);
@@ -83,13 +102,17 @@ export async function userAddCommunityMember(communityId, userId, role, membersh
         [MemberFields.role]: r,
         [MemberFields.joinedAt]: serverTimestamp(),
     });
+    const isEntity = isOfficialEntityCommunity(membership.community);
+    const subjectName = actor.subjectName ?? (await getUserDisplayName(userId));
     await notifyMembershipEvent({
         targetUserId: userId,
         kind: InboxKinds.memberAdded,
         communityId,
         communityName: membership.community?.name,
+        isEntity,
         actorId: actor.actorId ?? null,
         actorName: actor.actorName ?? null,
+        subjectName,
         role: r,
     });
 }
@@ -100,15 +123,19 @@ export async function userRemoveMember(memberDocId, communityId, memberships, ac
     const memberSnap = await getDoc(memberRef);
     if (!memberSnap.exists()) throw new Error('Miembro no encontrado');
     const targetUserId = memberSnap.data()[MemberFields.userId];
+    const isEntity = isOfficialEntityCommunity(membership.community);
     // Notify BEFORE delete so membership-gated rules still allow the inbox write.
     if (targetUserId) {
+        const subjectName = actor.subjectName ?? (await getUserDisplayName(targetUserId));
         await notifyMembershipEvent({
             targetUserId,
             kind: InboxKinds.memberRemoved,
             communityId,
             communityName: membership.community?.name,
+            isEntity,
             actorId: actor.actorId ?? null,
             actorName: actor.actorName ?? null,
+            subjectName,
         });
     }
     await deleteDoc(memberRef);
@@ -133,13 +160,17 @@ export async function userUpdateMemberRole(memberDocId, role, communityId, membe
     const targetUserId = memberData[MemberFields.userId];
     await updateDoc(memberRef, { [MemberFields.role]: r });
     if (targetUserId && previousRole !== r) {
+        const isEntity = isOfficialEntityCommunity(membership.community);
+        const subjectName = actor.subjectName ?? (await getUserDisplayName(targetUserId));
         await notifyMembershipEvent({
             targetUserId,
             kind: InboxKinds.roleChanged,
             communityId,
             communityName: membership.community?.name,
+            isEntity,
             actorId: actor.actorId ?? null,
             actorName: actor.actorName ?? null,
+            subjectName,
             role: r,
             previousRole,
         });
@@ -166,5 +197,25 @@ export async function userLeaveCommunity(memberDocId, communityId, memberships) 
             throw new Error('Eres el único gestor. Promueve a otro miembro antes de salir.');
         }
     }
+    const subjectName =
+        mine.user?.displayName
+        || mine.user?.fullName
+        || mine.user?.name
+        || mine.user?.email
+        || (await getUserDisplayName(mine.userId));
+    // Notify managers BEFORE delete so membership-gated rules still allow the write.
+    await notifyMembershipEvent({
+        targetUserId: mine.userId,
+        kind: InboxKinds.memberLeft,
+        communityId,
+        communityName: mine.community?.name,
+        isEntity,
+        actorId: mine.userId,
+        actorName: subjectName,
+        subjectName,
+        notifyTarget: false,
+        notifyManagers: true,
+        purgeTargetOnRemove: false,
+    });
     await deleteDoc(doc(db, Collections.COMMUNITY_MEMBERS, memberDocId));
 }

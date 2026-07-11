@@ -33,6 +33,10 @@ export default function LoginPage() {
                 setError('Ya existe una cuenta con este correo usando otro método de inicio de sesión.');
             } else if (code === 'auth/popup-blocked') {
                 setError('El navegador bloqueó la ventana emergente. Permite ventanas emergentes e intenta de nuevo.');
+            } else if (code === 'auth/unauthorized-domain') {
+                setError(
+                    'Este dominio no está autorizado en Firebase. Agrega web-users-guardian.vercel.app en Authentication → Settings → Authorized domains.',
+                );
             } else {
                 setError(err?.message || 'No se pudo iniciar sesión con Google');
             }

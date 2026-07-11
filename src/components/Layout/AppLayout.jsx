@@ -21,7 +21,7 @@ function getPageInfo(pathname) {
         return { title: 'Comunidad', subtitle: 'Miembros y alertas' };
     }
     if (pathname.startsWith('/reports/')) {
-        return { title: 'Reportes', subtitle: 'Bandeja de la entidad' };
+        return { title: 'Reportes', subtitle: 'Detalle de la entidad' };
     }
     return pageTitles['/'];
 }
