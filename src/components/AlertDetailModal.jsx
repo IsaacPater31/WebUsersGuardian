@@ -6,6 +6,9 @@ import {
 } from '../config/alertTypes';
 import { getCommunityNames } from '../services/communityService';
 import { getSubtypeLabel } from '../utils/alertSubtype';
+import { useAuth } from '../contexts/AuthContext';
+import { canMarkAlertAttended } from '../utils/permissions';
+import AttendAlertControls from './AttendAlertControls';
 
 /** Detalle de alerta en español (producto). */
 const es = (copy) => copy;
@@ -132,8 +135,10 @@ function InfoRow({ icon, iconColor = 'var(--color-text-tertiary)', label, childr
 }
 
 // ─── Main modal ───────────────────────────────────────────────────────────────
-export default function AlertDetailModal({ alert, onClose }) {
+export default function AlertDetailModal({ alert, onClose, canMarkOverride = null }) {
+    const { memberships } = useAuth();
     const [communityNames, setCommunityNames] = useState([]);
+    const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
 
     useEffect(() => {
         let cancelled = false;
@@ -153,6 +158,10 @@ export default function AlertDetailModal({ alert, onClose }) {
         };
     }, [alert?.communityIds]);
 
+    useEffect(() => {
+        setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
+    }, [alert?.id, alert?.alertStatus]);
+
     if (!alert) return null;
 
     const color     = getAlertColor(alert.alertType);
@@ -161,7 +170,10 @@ export default function AlertDetailModal({ alert, onClose }) {
     const mainLabel = getAlertLabel(alert.alertType);
     const subLabel  = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
     const timeAgo   = getTimeAgo(alert.timestamp);
-    const isAttended= alert.alertStatus === AlertStatus.ATTENDED;
+    const isAttended= localStatus === AlertStatus.ATTENDED;
+    const canMark = canMarkOverride != null
+        ? Boolean(canMarkOverride)
+        : canMarkAlertAttended(alert, memberships);
 
     const timestamp = alert.timestamp?.toDate
         ? alert.timestamp.toDate()
@@ -278,6 +290,12 @@ export default function AlertDetailModal({ alert, onClose }) {
                                         ? es('Esta alerta fue marcada como atendida.')
                                         : es('Esta alerta está pendiente de atención.')}
                                 </div>
+                                <AttendAlertControls
+                                    alertId={alert.id}
+                                    alertStatus={localStatus}
+                                    canMark={canMark}
+                                    onStatusChange={setLocalStatus}
+                                />
                             </div>
                         </div>
                     </div>

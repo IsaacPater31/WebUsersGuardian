@@ -1,11 +1,11 @@
 /**
  * Community broadcast messages — Firestore fan-out to member inboxes.
- * Android delivers notifications via GuardianBackgroundService (Firestore listener).
+ * One inbox doc per (user, community) so multi-community recipients get
+ * individual notifications. Android delivers via GuardianBackgroundService.
  */
 import {
     addDoc,
     collection,
-    doc,
     getDocs,
     limit,
     onSnapshot,
@@ -19,6 +19,7 @@ import { db } from '../firebase';
 import { Collections } from '../config/collections';
 import { MemberFields, MessageFields } from '../config/firestoreFields';
 import { canSendMessages } from '../utils/permissions';
+import { InboxKinds, batchSetInboxDoc } from './inboxNotifyService';
 
 const messagesCol = () => collection(db, Collections.COMMUNITY_MESSAGES);
 
@@ -66,11 +67,13 @@ export async function sendCommunityMessage({
         throw new Error('Selecciona al menos una comunidad');
     }
 
+    const communityNameById = new Map();
     for (const cid of communityIds) {
         const m = memberships.find((x) => x.communityId === cid);
         if (!m || !canSendMessages(m.community, m.role)) {
             throw new Error('No tienes permiso para enviar mensajes a una de las comunidades seleccionadas');
         }
+        communityNameById.set(cid, (m.community?.name || 'Comunidad').trim() || 'Comunidad');
     }
 
     const messageRef = await addDoc(messagesCol(), {
@@ -82,33 +85,31 @@ export async function sendCommunityMessage({
         [MessageFields.createdAt]: serverTimestamp(),
     });
 
-    const recipientMap = new Map();
+    /** @type {Array<{ uid: string, communityId: string, communityName: string }>} */
+    const fanout = [];
     for (const cid of communityIds) {
         const userIds = await getMemberUserIds(cid);
+        const cname = communityNameById.get(cid) || 'Comunidad';
         for (const uid of userIds) {
-            if (!recipientMap.has(uid)) recipientMap.set(uid, []);
-            recipientMap.get(uid).push(cid);
+            fanout.push({ uid, communityId: cid, communityName: cname });
         }
     }
 
-    const entries = [...recipientMap.entries()];
-    for (let i = 0; i < entries.length; i += 400) {
+    for (let i = 0; i < fanout.length; i += 400) {
         const batch = writeBatch(db);
-        const chunk = entries.slice(i, i + 400);
-        for (const [uid, cids] of chunk) {
-            const inboxRef = doc(
-                collection(db, Collections.USERS, uid, 'community_messages'),
-                messageRef.id,
-            );
-            batch.set(inboxRef, {
+        const chunk = fanout.slice(i, i + 400);
+        for (const entry of chunk) {
+            const inboxDocId = `${messageRef.id}_${entry.communityId}`;
+            batchSetInboxDoc(batch, entry.uid, inboxDocId, {
+                kind: InboxKinds.communityMessage,
                 message_id: messageRef.id,
-                community_ids: cids,
+                community_id: entry.communityId,
+                community_name: entry.communityName,
+                community_ids: [entry.communityId],
                 title: trimmedTitle,
                 body: trimmedBody,
                 sender_id: senderId,
                 sender_name: senderName,
-                read: false,
-                created_at: serverTimestamp(),
             });
         }
         await batch.commit();
@@ -118,88 +119,27 @@ export async function sendCommunityMessage({
 }
 
 /**
- * Messages sent by the current user (admin/official history).
+ * Sent history for the current user (canonical community_messages).
  */
-export async function fetchSentMessages(senderId, max = 50) {
+export function subscribeSentMessages(senderId, callback) {
     const q = query(
         messagesCol(),
         where(MessageFields.senderId, '==', senderId),
         orderBy(MessageFields.createdAt, 'desc'),
-        limit(max),
+        limit(50),
     );
-    try {
-        const snap = await getDocs(q);
-        return snap.docs.map(parseMessage);
-    } catch {
-        const snap = await getDocs(query(messagesCol(), limit(200)));
-        return snap.docs
-            .map(parseMessage)
-            .filter((m) => m.senderId === senderId)
-            .sort((a, b) => {
-                const ta = a.createdAt?.toMillis?.() ?? 0;
-                const tb = b.createdAt?.toMillis?.() ?? 0;
-                return tb - ta;
-            })
-            .slice(0, max);
-    }
+    return onSnapshot(q, (snap) => {
+        callback(snap.docs.map(parseMessage));
+    });
 }
 
-function sentMessagesQuery(senderId, max) {
-    return query(
+export async function getSentMessages(senderId) {
+    const q = query(
         messagesCol(),
         where(MessageFields.senderId, '==', senderId),
         orderBy(MessageFields.createdAt, 'desc'),
-        limit(max),
+        limit(50),
     );
-}
-
-function parseSentMessagesSnapshot(snap, senderId, max) {
-    return snap.docs
-        .map(parseMessage)
-        .filter((m) => m.senderId === senderId)
-        .sort((a, b) => {
-            const ta = a.createdAt?.toMillis?.() ?? 0;
-            const tb = b.createdAt?.toMillis?.() ?? 0;
-            return tb - ta;
-        })
-        .slice(0, max);
-}
-
-/**
- * Real-time subscription to messages sent by the current user.
- * @param {string} senderId
- * @param {(messages: ReturnType<typeof parseMessage>[]) => void} callback
- * @param {number} [max=50]
- * @returns {() => void}
- */
-export function subscribeSentMessages(senderId, callback, max = 50) {
-    if (!senderId) {
-        callback([]);
-        return () => {};
-    }
-
-    let unsubFallback = () => {};
-    let fallbackAttached = false;
-
-    const unsubPrimary = onSnapshot(
-        sentMessagesQuery(senderId, max),
-        (snap) => callback(snap.docs.map(parseMessage)),
-        () => {
-            if (fallbackAttached) return;
-            fallbackAttached = true;
-            unsubFallback = onSnapshot(
-                query(messagesCol(), limit(200)),
-                (snap) => callback(parseSentMessagesSnapshot(snap, senderId, max)),
-                (err) => {
-                    console.error('[messageService] subscribeSentMessages', err);
-                    callback([]);
-                },
-            );
-        },
-    );
-
-    return () => {
-        unsubPrimary();
-        unsubFallback();
-    };
+    const snap = await getDocs(q);
+    return snap.docs.map(parseMessage);
 }

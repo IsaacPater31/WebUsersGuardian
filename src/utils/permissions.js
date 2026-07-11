@@ -53,6 +53,24 @@ export function manageableMemberships(memberships) {
     return memberships.filter((m) => canManageMembership(m.community, m.role));
 }
 
+/**
+ * Community admins may mark normal-community alerts as attended (one-way).
+ * Entity officials use Reportes (pass canMarkOverride on that page) — not map/alerts.
+ */
+export function canMarkAlertAttended(alert, memberships) {
+    if (!alert || !memberships?.length) return false;
+    const ids = Array.isArray(alert.communityIds) && alert.communityIds.length > 0
+        ? alert.communityIds
+        : [alert.communityId].filter(Boolean);
+    if (!ids.length) return false;
+
+    return memberships.some((m) => {
+        if (!ids.includes(m.communityId) || !m.community) return false;
+        if (isOfficialEntityCommunity(m.community)) return false;
+        return m.role === MemberFields.roleAdmin;
+    });
+}
+
 export function roleLabel(role, isEntity) {
     if (isEntity) {
         if (role === MemberFields.roleOfficial) return 'Oficial';

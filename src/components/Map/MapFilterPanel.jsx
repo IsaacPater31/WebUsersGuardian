@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { X, SlidersHorizontal, Circle, CheckCircle2, Clock, CalendarDays, AlertTriangle } from 'lucide-react';
 import { ACTIVE_ALERT_TYPES } from '../../config/alertTypes';
@@ -53,9 +53,11 @@ export default function MapFilterPanel({
         <div className="map-filter-panel">
             {/* ── Header ── */}
             <button
+                type="button"
                 className="map-filter-header"
                 onClick={() => setIsExpanded((v) => !v)}
                 aria-expanded={isExpanded}
+                aria-controls="map-filter-body"
             >
                 <div className="map-filter-header-icon">
                     <SlidersHorizontal />
@@ -70,13 +72,17 @@ export default function MapFilterPanel({
             </button>
 
             {/* ── Body ── */}
-            <div className={`map-filter-body${isExpanded ? '' : ' hidden'}`}>
+            <div
+                id="map-filter-body"
+                className={`map-filter-body-wrap${isExpanded ? ' expanded' : ''}`}
+            >
+            <div className="map-filter-body">
 
                 {/* Result count */}
                 <div className="map-filter-result-row">
                     <span className="map-filter-result-label">{totalVisible} alerta{totalVisible !== 1 ? 's' : ''} visibles</span>
                     {activeCount > 0 && (
-                        <button className="map-filter-clear-btn" onClick={clearAll}>
+                        <button type="button" className="map-filter-clear-btn" onClick={clearAll}>
                             <X /> Limpiar
                         </button>
                     )}
@@ -182,6 +188,7 @@ export default function MapFilterPanel({
                         </div>
                     )}
                 </div>
+            </div>
             </div>
         </div>
     );

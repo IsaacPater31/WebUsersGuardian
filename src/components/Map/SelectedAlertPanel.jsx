@@ -4,11 +4,19 @@ import { Eye, Forward, Flag, EyeOff, User, X, Users } from 'lucide-react';
 import { getAlertColor, getAlertIcon, getAlertLabel, getTimeAgo } from '../../data/emergencyTypes';
 import { getCommunityNames } from '../../services/communityService';
 import { getSubtypeLabel } from '../../utils/alertSubtype';
+import { useAuth } from '../../contexts/AuthContext';
+import { canMarkAlertAttended } from '../../utils/permissions';
+import { AlertStatus } from '../../config/alertTypes';
+import AttendAlertControls from '../AttendAlertControls';
 
 export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
+    const { memberships } = useAuth();
     const [communityNames, setCommunityNames] = useState([]);
+    const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
     const main = getAlertLabel(alert.alertType);
     const sub = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
+    const isAttended = localStatus === AlertStatus.ATTENDED;
+    const canMark = canMarkAlertAttended(alert, memberships);
 
     useEffect(() => {
         let cancelled = false;
@@ -28,13 +36,17 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
         };
     }, [alert?.communityIds]);
 
+    useEffect(() => {
+        setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
+    }, [alert?.id, alert?.alertStatus]);
+
     const Icon = LucideIcons[getAlertIcon(alert.alertType)] || LucideIcons.AlertTriangle;
 
     return (
-        <div className="map-alert-panel">
+        <div className="map-alert-panel" role="region" aria-label="Resumen de alerta seleccionada">
             <div className="map-alert-panel-header" style={{ background: getAlertColor(alert.alertType) }}>
                 <div className="map-alert-panel-header-icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
-                    <Icon />
+                    <Icon aria-hidden />
                 </div>
                 <div className="map-alert-panel-header-info">
                     <div className="map-alert-panel-header-type" style={{ lineHeight: 1.2 }}>
@@ -48,25 +60,67 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                     </div>
                     <div className="map-alert-panel-header-time">{getTimeAgo(alert.timestamp)}</div>
                 </div>
-                <button className="map-alert-panel-close" onClick={onClose}><X /></button>
+                <button type="button" className="map-alert-panel-close" onClick={onClose} aria-label="Cerrar panel">
+                    <X aria-hidden />
+                </button>
             </div>
 
             <div className="map-alert-panel-body">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     {alert.isAnonymous ? (
                         <>
-                            <EyeOff style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} />
+                            <EyeOff style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} aria-hidden />
                             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Reporte anónimo</span>
                         </>
                     ) : (
                         <>
-                            <User style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} />
+                            <User style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} aria-hidden />
                             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
                                 {alert.userName || 'Usuario desconocido'}
                             </span>
                         </>
                     )}
                 </div>
+
+                <div
+                    style={{
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        border: `1px solid ${isAttended ? 'rgba(52,199,89,0.35)' : 'rgba(255,159,10,0.35)'}`,
+                        background: isAttended ? 'rgba(52,199,89,0.08)' : 'rgba(255,159,10,0.08)',
+                    }}
+                >
+                    <div
+                        style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase',
+                            color: isAttended ? '#1D7A3A' : '#B26A00',
+                            marginBottom: 6,
+                        }}
+                    >
+                        Estado operativo
+                    </div>
+                    <div
+                        style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: isAttended ? '#1F7A3D' : '#B26A00',
+                        }}
+                    >
+                        {isAttended ? 'Atendida' : 'No atendida'}
+                    </div>
+                </div>
+
+                <AttendAlertControls
+                    alertId={alert.id}
+                    alertStatus={localStatus}
+                    canMark={canMark}
+                    compact
+                    onStatusChange={setLocalStatus}
+                />
 
                 {alert.description && (
                     <p style={{ fontSize: 14, color: 'var(--color-text-primary)', marginBottom: 12, lineHeight: 1.5 }}>
@@ -75,27 +129,29 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                 )}
 
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <span className="tag tag-views"><Eye /> {alert.viewedCount} vistas</span>
-                    <span className="tag tag-forwards"><Forward /> {alert.forwardsCount} reenvios</span>
+                    <span className="tag tag-views"><Eye aria-hidden /> {alert.viewedCount} vistas</span>
+                    <span className="tag tag-forwards"><Forward aria-hidden /> {alert.forwardsCount} reenvios</span>
                     {alert.reportsCount > 0 && (
-                        <span className="tag tag-reports"><Flag /> {alert.reportsCount} reportes</span>
+                        <span className="tag tag-reports"><Flag aria-hidden /> {alert.reportsCount} reportes</span>
                     )}
                 </div>
 
                 {communityNames.length > 0 && (
                     <div style={{ marginTop: 14 }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            marginBottom: 8,
-                            color: '#007AFF',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            letterSpacing: '0.05em',
-                            textTransform: 'uppercase',
-                        }}>
-                            <Users style={{ width: 13, height: 13 }} />
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                marginBottom: 8,
+                                color: '#007AFF',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                letterSpacing: '0.05em',
+                                textTransform: 'uppercase',
+                            }}
+                        >
+                            <Users style={{ width: 13, height: 13 }} aria-hidden />
                             Comunidades ({communityNames.length})
                         </div>
                         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -115,7 +171,7 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                                         border: '1px solid rgba(0,122,255,0.25)',
                                     }}
                                 >
-                                    <Users style={{ width: 10, height: 10 }} />
+                                    <Users style={{ width: 10, height: 10 }} aria-hidden />
                                     {name}
                                 </span>
                             ))}
@@ -123,15 +179,23 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                     </div>
                 )}
 
-                <button onClick={onShowDetail} style={{
-                    marginTop: 16, width: '100%', padding: '10px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border-strong)',
-                    background: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                    fontFamily: 'var(--font-family)',
-                }}>
+                <button
+                    type="button"
+                    onClick={onShowDetail}
+                    style={{
+                        marginTop: 16,
+                        width: '100%',
+                        padding: '10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border-strong)',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-family)',
+                    }}
+                >
                     Ver detalle completo
                 </button>
             </div>

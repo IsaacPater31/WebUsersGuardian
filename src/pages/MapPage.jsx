@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import { subscribeToMapAlertsFiltered } from '../services/alertService';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../utils/mapUtils';
@@ -10,27 +10,41 @@ import SelectedAlertPanel from '../components/Map/SelectedAlertPanel';
 import MapAlertCountBadge from '../components/Map/MapAlertCountBadge';
 import RequestLocationOnFirstInteraction from '../components/Map/RequestLocationOnFirstInteraction';
 import MapFilterPanel from '../components/Map/MapFilterPanel';
+import MapCommunityFilterBar from '../components/Map/MapCommunityFilterBar';
 import { DEFAULT_FILTERS } from '../config/filterOptions';
 import { useAuth } from '../contexts/AuthContext';
 import { filterAlertsByCommunities } from '../utils/alertScope';
+import { isOfficialEntityCommunity } from '../utils/communityVisibility';
 
 
 // ─── MapPage ──────────────────────────────────────────────────────────────────
 export default function MapPage() {
-    const { normalCommunityIds, loading: authLoading } = useAuth();
-    const [alerts, setAlerts] = useState([]);
+    const { memberships, normalCommunityIds, loading: authLoading } = useAuth();
+    const [rawAlerts, setRawAlerts] = useState([]);
     const [alertsLoading, setAlertsLoading] = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filters, setFilters] = useState(DEFAULT_FILTERS);
+    /** null = all membership communities; [] = none; [ids] = subset */
+    const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
     const { position: userPosition, error: geoError, request: requestLocation } = useUserGeolocation();
 
-    // Keep a ref to the current unsubscribe fn so we can cancel it when filters change
     const unsubRef = useRef(null);
 
-    // Re-subscribe every time filters change
+    const mapCommunities = useMemo(() => (
+        memberships
+            .filter((m) => m.community && !isOfficialEntityCommunity(m.community))
+            .map((m) => ({ id: m.communityId, name: m.community.name || 'Comunidad' }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+    ), [memberships]);
+
+    const effectiveCommunityIds = useMemo(() => {
+        if (selectedCommunityIds == null) return normalCommunityIds;
+        return selectedCommunityIds;
+    }, [selectedCommunityIds, normalCommunityIds]);
+
+    // Type / status / date → Firestore subscription only
     useEffect(() => {
-        // Cancel previous subscription
         if (unsubRef.current) {
             unsubRef.current();
             unsubRef.current = null;
@@ -39,7 +53,7 @@ export default function MapPage() {
         setAlertsLoading(true);
 
         const unsub = subscribeToMapAlertsFiltered(filters, (data) => {
-            setAlerts(filterAlertsByCommunities(data, normalCommunityIds));
+            setRawAlerts(data);
             setAlertsLoading(false);
         });
 
@@ -51,11 +65,16 @@ export default function MapPage() {
                 unsubRef.current = null;
             }
         };
-    }, [filters, normalCommunityIds]);
+    }, [filters]);
+
+    // Community filter is client-side AND with type/status/date results
+    const alerts = useMemo(
+        () => filterAlertsByCommunities(rawAlerts, effectiveCommunityIds),
+        [rawAlerts, effectiveCommunityIds],
+    );
 
     const handleFiltersChange = useCallback((newFilters) => {
         setFilters(newFilters);
-        setSelectedAlert((prev) => prev);
     }, []);
 
     if (authLoading) {
@@ -78,7 +97,7 @@ export default function MapPage() {
     }
 
     return (
-        <div className="map-page">
+        <div className="map-page has-community-filter">
             <div className="map-container">
                 <MapContainer
                     center={userPosition || DEFAULT_CENTER}
@@ -97,7 +116,6 @@ export default function MapPage() {
                         noWrap={true}
                     />
 
-                    {/* User's GPS position — blue pulsing dot */}
                     <RequestLocationOnFirstInteraction
                         enabled={!userPosition}
                         onRequest={requestLocation}
@@ -105,17 +123,14 @@ export default function MapPage() {
                     <AutoCenterOnUser position={userPosition} />
                     <UserLocationMarker position={userPosition} />
 
-                    {/* Locate-me button — bottom right */}
                     <LocateMeButton
                         userPosition={userPosition}
                         onLocate={requestLocation}
                     />
 
-                    {/* Alert markers with spiral de-overlap */}
                     <DynamicMarkers alerts={alerts} onMarkerClick={setSelectedAlert} />
                 </MapContainer>
 
-                {/* ── Filter Panel (replaces old MapLegend) ── */}
                 <MapFilterPanel
                     types={filters.types}
                     status={filters.status}
@@ -126,7 +141,12 @@ export default function MapPage() {
                     totalVisible={alerts.length}
                 />
 
-                {/* Alert count badge */}
+                <MapCommunityFilterBar
+                    communities={mapCommunities}
+                    selectedIds={selectedCommunityIds}
+                    onChange={setSelectedCommunityIds}
+                />
+
                 {!alertsLoading && <MapAlertCountBadge count={alerts.length} />}
                 {alertsLoading && (
                     <div className="map-loading-overlay">
@@ -134,7 +154,6 @@ export default function MapPage() {
                     </div>
                 )}
 
-                {/* Discreet location error hint */}
                 {geoError && (
                     <div className="map-geo-hint">
                         <div className="map-geo-hint-title">Ubicación desactivada</div>
@@ -144,7 +163,6 @@ export default function MapPage() {
                     </div>
                 )}
 
-                {/* Selected alert side panel */}
                 {selectedAlert && (
                     <SelectedAlertPanel
                         alert={selectedAlert}

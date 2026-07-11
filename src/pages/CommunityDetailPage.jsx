@@ -148,7 +148,10 @@ export default function CommunityDetailPage() {
         if (!u?.id) return;
         setBusy(true);
         try {
-            await userAddCommunityMember(communityId, u.id, newRole, memberships);
+            await userAddCommunityMember(communityId, u.id, newRole, memberships, {
+                actorId: user?.uid,
+                actorName: user?.displayName || user?.email || null,
+            });
             setMemberSearch('');
             setSearchResults([]);
         } catch (err) {
@@ -162,7 +165,10 @@ export default function CommunityDetailPage() {
         if (!window.confirm('¿Quitar a esta persona de la comunidad?')) return;
         setBusy(true);
         try {
-            await userRemoveMember(memberDocId, communityId, memberships);
+            await userRemoveMember(memberDocId, communityId, memberships, {
+                actorId: user?.uid,
+                actorName: user?.displayName || user?.email || null,
+            });
         } catch (err) {
             alert(err?.message || 'Error');
         } finally {
@@ -173,7 +179,10 @@ export default function CommunityDetailPage() {
     async function changeRole(memberId, role) {
         setBusy(true);
         try {
-            await userUpdateMemberRole(memberId, role, communityId, memberships);
+            await userUpdateMemberRole(memberId, role, communityId, memberships, {
+                actorId: user?.uid,
+                actorName: user?.displayName || user?.email || null,
+            });
             await reloadMemberships();
         } catch (err) {
             alert(err?.message || 'Error');

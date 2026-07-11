@@ -17,6 +17,7 @@ import { CommunityFields, MemberFields } from '../config/firestoreFields';
 import { canManageMembership } from '../utils/permissions';
 import { isOfficialEntityCommunity } from '../utils/communityVisibility';
 import { getCommunityMembers } from './communityService';
+import { InboxKinds, notifyMembershipEvent } from './inboxNotifyService';
 
 const membersCol = () => collection(db, Collections.COMMUNITY_MEMBERS);
 
@@ -69,7 +70,7 @@ export async function userUpdateCommunity(communityId, patch, memberships) {
     await updateDoc(ref, data);
 }
 
-export async function userAddCommunityMember(communityId, userId, role, memberships) {
+export async function userAddCommunityMember(communityId, userId, role, memberships, actor = {}) {
     const membership = await assertCanManage(communityId, memberships);
     const r = normalizeRole(role);
     const allowed = await getAllowedRoles(membership.community);
@@ -82,14 +83,38 @@ export async function userAddCommunityMember(communityId, userId, role, membersh
         [MemberFields.role]: r,
         [MemberFields.joinedAt]: serverTimestamp(),
     });
+    await notifyMembershipEvent({
+        targetUserId: userId,
+        kind: InboxKinds.memberAdded,
+        communityId,
+        communityName: membership.community?.name,
+        actorId: actor.actorId ?? null,
+        actorName: actor.actorName ?? null,
+        role: r,
+    });
 }
 
-export async function userRemoveMember(memberDocId, communityId, memberships) {
-    await assertCanManage(communityId, memberships);
-    await deleteDoc(doc(db, Collections.COMMUNITY_MEMBERS, memberDocId));
+export async function userRemoveMember(memberDocId, communityId, memberships, actor = {}) {
+    const membership = await assertCanManage(communityId, memberships);
+    const memberRef = doc(db, Collections.COMMUNITY_MEMBERS, memberDocId);
+    const memberSnap = await getDoc(memberRef);
+    if (!memberSnap.exists()) throw new Error('Miembro no encontrado');
+    const targetUserId = memberSnap.data()[MemberFields.userId];
+    // Notify BEFORE delete so membership-gated rules still allow the inbox write.
+    if (targetUserId) {
+        await notifyMembershipEvent({
+            targetUserId,
+            kind: InboxKinds.memberRemoved,
+            communityId,
+            communityName: membership.community?.name,
+            actorId: actor.actorId ?? null,
+            actorName: actor.actorName ?? null,
+        });
+    }
+    await deleteDoc(memberRef);
 }
 
-export async function userUpdateMemberRole(memberDocId, role, communityId, memberships) {
+export async function userUpdateMemberRole(memberDocId, role, communityId, memberships, actor = {}) {
     const membership = await assertCanManage(communityId, memberships);
     const r = normalizeRole(role);
     const allowed = await getAllowedRoles(membership.community);
@@ -99,11 +124,26 @@ export async function userUpdateMemberRole(memberDocId, role, communityId, membe
     const memberRef = doc(db, Collections.COMMUNITY_MEMBERS, memberDocId);
     const memberSnap = await getDoc(memberRef);
     if (!memberSnap.exists()) throw new Error('Miembro no encontrado');
-    const memberCommunityId = memberSnap.data()[MemberFields.communityId];
+    const memberData = memberSnap.data() || {};
+    const memberCommunityId = memberData[MemberFields.communityId];
     if (memberCommunityId !== communityId) {
         throw new Error('Miembro no pertenece a esta comunidad');
     }
+    const previousRole = memberData[MemberFields.role];
+    const targetUserId = memberData[MemberFields.userId];
     await updateDoc(memberRef, { [MemberFields.role]: r });
+    if (targetUserId && previousRole !== r) {
+        await notifyMembershipEvent({
+            targetUserId,
+            kind: InboxKinds.roleChanged,
+            communityId,
+            communityName: membership.community?.name,
+            actorId: actor.actorId ?? null,
+            actorName: actor.actorName ?? null,
+            role: r,
+            previousRole,
+        });
+    }
 }
 
 /**
