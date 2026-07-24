@@ -132,6 +132,25 @@ export async function getCommunityMembers(communityId) {
     return enrichMembers(membersFromSnapshot(snapshot));
 }
 
+/** Real-time subscription to all communities (Dashboard stats scope). */
+export function subscribeToCommunities(callback) {
+    return onSnapshot(
+        collection(db, Collections.COMMUNITIES),
+        (snapshot) => {
+            const communities = snapshot.docs.map((docSnap) => {
+                putMeta(docSnap.id, docSnap.data());
+                return parseCommunity(docSnap);
+            });
+            _cacheReady = true;
+            callback(communities);
+        },
+        (e) => {
+            console.error('[communityRepository] subscribeToCommunities', e);
+            callback([]);
+        },
+    );
+}
+
 export function subscribeCommunityMembers(communityId, callback) {
     const q = query(
         collection(db, Collections.COMMUNITY_MEMBERS),
