@@ -1,5 +1,9 @@
 import CommunityIconPickerGrid from '@/features/communities/ui/CommunityIconPickerGrid';
 import EntityAlertTypesPicker from '@/features/communities/ui/EntityAlertTypesPicker';
+import {
+    iconPickerLabelForSubject,
+    subjectEditTitle,
+} from '@/shared/config/iconPickerLabels';
 
 /**
  * Edit community / entity metadata modal.
@@ -18,7 +22,7 @@ export default function CommunityEditModal({
     return (
         <div className="admin-modal-overlay" role="dialog" onClick={onClose}>
             <div className="admin-modal admin-modal--wide" onClick={(e) => e.stopPropagation()}>
-                <h3 className="admin-modal-title">Editar {isEntity ? 'entidad' : 'comunidad'}</h3>
+                <h3 className="admin-modal-title">{subjectEditTitle(isEntity)}</h3>
                 <form onSubmit={onSubmit} className="admin-modal-form">
                     <label className="login-label">
                         Nombre
@@ -41,7 +45,7 @@ export default function CommunityEditModal({
                         />
                     </label>
                     <CommunityIconPickerGrid
-                        label={isEntity ? 'Icono de la entidad' : 'Icono de la comunidad'}
+                        label={iconPickerLabelForSubject(isEntity)}
                         selectedCodePoint={editForm.iconCodePoint}
                         selectedColor={editForm.iconColor}
                         onChange={({ iconCodePoint, iconColor }) =>
