@@ -74,16 +74,23 @@ function alertTimeMs(alert) {
     return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
+/** All alerts, newest first (map side panel list). */
+export function sortAlertsNewestFirst(alerts) {
+    return (alerts ?? [])
+        .slice()
+        .sort((a, b) => alertTimeMs(b) - alertTimeMs(a));
+}
+
+/** Pending alerts, newest first. */
+export function sortPendingAlertsNewestFirst(alerts) {
+    return (alerts ?? [])
+        .filter((a) => a.alertStatus !== AlertStatus.ATTENDED)
+        .slice()
+        .sort((a, b) => alertTimeMs(b) - alertTimeMs(a));
+}
+
 function resolveLatestPendingAlertId(alerts) {
-    const pending = (alerts ?? []).filter(
-        (a) => a.alertStatus !== AlertStatus.ATTENDED
-    );
-    if (pending.length === 0) return null;
-    return pending.reduce(
-        (latest, current) =>
-            alertTimeMs(current) > alertTimeMs(latest) ? current : latest,
-        pending[0]
-    ).id;
+    return sortPendingAlertsNewestFirst(alerts)[0]?.id ?? null;
 }
 
 function subscribeAlertsFiltered(filters, callback, options = {}) {

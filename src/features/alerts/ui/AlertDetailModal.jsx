@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { X, MapPin, Clock, ExternalLink, CheckCircle2, Clock3, Users } from 'lucide-react';
-import {
-    getAlertColor, getAlertIcon, getAlertLabel, getTimeAgo, AlertStatus,
-} from '@/shared/config/alertTypes';
+import { X, MapPin, Clock, ExternalLink, CheckCircle2, Clock3 } from 'lucide-react';
+import { getTimeAgo, AlertStatus } from '@/shared/config/alertTypes';
 import { getCommunityNames } from '@/features/communities/repository/communityRepository';
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
+import {
+    resolveAlertTypePresentation,
+} from '@/features/alerts/utils/alertTypePresentation';
+import { alertContentLabels, enrichDestinationsWithMemberships } from '@/features/alerts/utils/alertDestinations';
+import AlertKeyFacts from '@/features/alerts/ui/AlertKeyFacts';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { canMarkAlertAttended } from '@/shared/domain/permissions';
 import AttendAlertControls from './AttendAlertControls';
@@ -137,26 +140,28 @@ function InfoRow({ icon, iconColor = 'var(--color-text-tertiary)', label, childr
 // ─── Main modal ───────────────────────────────────────────────────────────────
 export default function AlertDetailModal({ alert, onClose, canMarkOverride = null }) {
     const { memberships } = useAuth();
-    const [communityNames, setCommunityNames] = useState([]);
+    const [destinations, setDestinations] = useState([]);
     const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
 
     useEffect(() => {
         let cancelled = false;
         let emptyTimeout;
         if (alert?.communityIds?.length > 0) {
-            getCommunityNames(alert.communityIds).then((names) => {
-                if (!cancelled) setCommunityNames(names);
+            getCommunityNames(alert.communityIds).then((list) => {
+                if (!cancelled) {
+                    setDestinations(enrichDestinationsWithMemberships(list, memberships));
+                }
             });
         } else {
             emptyTimeout = setTimeout(() => {
-                if (!cancelled) setCommunityNames([]);
+                if (!cancelled) setDestinations([]);
             }, 0);
         }
         return () => {
             cancelled = true;
             if (emptyTimeout) clearTimeout(emptyTimeout);
         };
-    }, [alert?.communityIds]);
+    }, [alert?.communityIds, memberships]);
 
     useEffect(() => {
         setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
@@ -164,11 +169,10 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
 
     if (!alert) return null;
 
-    const color     = getAlertColor(alert.alertType, alert);
-    const iconName  = getAlertIcon(alert.alertType, alert);
+    const { label: mainLabel, color, icon: iconName } = resolveAlertTypePresentation(alert);
     const Icon      = LucideIcons[iconName] || LucideIcons.AlertTriangle;
-    const mainLabel = getAlertLabel(alert.alertType, alert);
     const subLabel  = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
+    const labels    = alertContentLabels(destinations);
     const timeAgo   = getTimeAgo(alert.timestamp);
     const isAttended= localStatus === AlertStatus.ATTENDED;
     const canMark = canMarkOverride != null
@@ -300,53 +304,10 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                         </div>
                     </div>
 
-                    {/* Comunidades */}
-                    {communityNames.length > 0 && (
-                        <div className="modal-section">
-                            <div style={{
-                                display:      'flex',
-                                alignItems:   'center',
-                                gap:          10,
-                                marginBottom: 10,
-                            }}>
-                                <span style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
-                                    background: '#007AFF18', border: '1px solid #007AFF25',
-                                }}>
-                                    <Users style={{ width: 14, height: 14, color: '#007AFF' }} />
-                                </span>
-                                <div>
-                                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: '#007AFFAA', textTransform: 'uppercase' }}>
-                                        {es('Comunidades')}
-                                    </div>
-                                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#007AFF' }}>
-                                        {communityNames.length}{' '}
-                                        {communityNames.length === 1 ? es('comunidad') : es('comunidades')}
-                                    </div>
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {communityNames.map(({ id, name }) => (
-                                    <span key={id} style={{
-                                        display:     'inline-flex',
-                                        alignItems:  'center',
-                                        gap:         5,
-                                        padding:     '5px 12px',
-                                        borderRadius:'20px',
-                                        fontSize:    '12px',
-                                        fontWeight:  600,
-                                        color:       '#007AFF',
-                                        background:  '#007AFF12',
-                                        border:      '1.5px solid #007AFF33',
-                                    }}>
-                                        <Users style={{ width: 11, height: 11 }} />
-                                        {name}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    {/* Destinos + descripción (misma UI comunidad / entidad) */}
+                    <div className="modal-section">
+                        <AlertKeyFacts alert={alert} destinations={destinations} />
+                    </div>
 
                     {/* Tipo principal + detalle / subtipo */}
                     <div className="modal-section">
@@ -357,7 +318,7 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                             border: `1.5px solid ${color}33`,
                         }}>
                             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: `${color}AA`, textTransform: 'uppercase', marginBottom: 6 }}>
-                                {es('Tipo principal')}
+                                {es(labels.typeLabel)}
                             </div>
                             <div style={{ fontSize: '18px', fontWeight: 800, color, marginBottom: 14 }}>
                                 {mainLabel}
@@ -411,15 +372,6 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                             {timestamp.toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' })}
                         </InfoRow>
                     </div>
-
-                    {/* Mensaje */}
-                    {alert.description ? (
-                        <div className="modal-section">
-                            <InfoRow icon={LucideIcons.MessageSquareText} label={es('Mensaje')}>
-                                {alert.description}
-                            </InfoRow>
-                        </div>
-                    ) : null}
 
                     {/* Stats Row */}
                     <div className="modal-section">

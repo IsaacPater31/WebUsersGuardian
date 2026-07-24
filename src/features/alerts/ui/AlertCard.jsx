@@ -4,6 +4,7 @@ import {
 } from '@/shared/config/alertTypes';
 import { MapPin, EyeOff, Eye, Forward, Flag, CheckCircle2, Clock3 } from 'lucide-react';
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
+import { resolveAlertMessage } from '@/features/alerts/utils/alertTypePresentation';
 
 export default function AlertCard({ alert, onClick }) {
     const color      = getAlertColor(alert.alertType, alert);
@@ -11,6 +12,7 @@ export default function AlertCard({ alert, onClick }) {
     const Icon       = LucideIcons[iconName] || LucideIcons.AlertTriangle;
     const main       = getAlertLabel(alert.alertType, alert);
     const sub        = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
+    const message    = resolveAlertMessage(alert);
     const timeAgo    = getTimeAgo(alert.timestamp);
     const isAttended = alert.alertStatus === AlertStatus.ATTENDED;
 
@@ -45,8 +47,8 @@ export default function AlertCard({ alert, onClick }) {
                     <span className="alert-card-time">{timeAgo}</span>
                 </div>
 
-                {alert.description && (
-                    <p className="alert-card-desc">{alert.description}</p>
+                {message && (
+                    <p className="alert-card-desc">{message}</p>
                 )}
 
                 <div className="alert-card-tags">

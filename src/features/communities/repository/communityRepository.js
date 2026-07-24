@@ -7,18 +7,32 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/shared/api/firebase';
 import { Collections } from '@/shared/config/collections';
-import { MemberFields } from '@/shared/config/firestoreFields';
+import { MemberFields, CommunityFields } from '@/shared/config/firestoreFields';
 import { fromDoc as parseCommunity } from '@/features/communities/mapper/communityMapper';
 
-let _nameCache = {};
+/** @type {Record<string, { name: string, isEntity: boolean }>} */
+let _metaCache = {};
 let _cacheReady = false;
+
+function readCommunityMeta(data, fallbackId) {
+    const d = data || {};
+    return {
+        name: d[CommunityFields.name] ?? d.name ?? fallbackId,
+        isEntity: !!(d[CommunityFields.isEntity] ?? d.is_entity ?? d.isEntity),
+    };
+}
+
+function putMeta(id, data) {
+    if (!id) return;
+    _metaCache[id] = readCommunityMeta(data, id);
+}
 
 async function _warmCache() {
     if (_cacheReady) return;
     try {
         const snapshot = await getDocs(collection(db, Collections.COMMUNITIES));
         for (const docSnap of snapshot.docs) {
-            _nameCache[docSnap.id] = docSnap.data().name || docSnap.id;
+            putMeta(docSnap.id, docSnap.data());
         }
         _cacheReady = true;
     } catch { /* Network unavailable — degrade gracefully */ }
@@ -26,17 +40,22 @@ async function _warmCache() {
 
 export async function getCommunityName(id) {
     if (!id) return null;
-    if (_nameCache[id]) return _nameCache[id];
+    if (_metaCache[id]?.name) return _metaCache[id].name;
     await _warmCache();
-    return _nameCache[id] ?? 'Comunidad eliminada o inexistente';
+    return _metaCache[id]?.name ?? 'Comunidad eliminada o inexistente';
 }
 
+/**
+ * @param {string[]} ids
+ * @returns {Promise<Array<{ id: string, name: string, isEntity: boolean }>>}
+ */
 export async function getCommunityNames(ids) {
     if (!ids || ids.length === 0) return [];
     await _warmCache();
     return ids.map((id) => ({
         id,
-        name: _nameCache[id] ?? 'Comunidad desconocida',
+        name: _metaCache[id]?.name ?? 'Comunidad desconocida',
+        isEntity: _metaCache[id]?.isEntity ?? false,
     }));
 }
 

@@ -1,54 +1,76 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { Eye, Forward, Flag, EyeOff, User, X, Users } from 'lucide-react';
-import { getAlertColor, getAlertIcon, getAlertLabel, getTimeAgo } from '@/shared/config/alertTypes';
+import { Eye, Forward, Flag, EyeOff, User, X } from 'lucide-react';
+import { getTimeAgo, AlertStatus } from '@/shared/config/alertTypes';
 import { getCommunityNames } from '@/features/communities/repository/communityRepository';
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
+import { resolveAlertTypePresentation } from '@/features/alerts/utils/alertTypePresentation';
+import {
+    alertContentLabels,
+    enrichDestinationsWithMemberships,
+} from '@/features/alerts/utils/alertDestinations';
+import AlertKeyFacts from '@/features/alerts/ui/AlertKeyFacts';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { canMarkAlertAttended } from '@/shared/domain/permissions';
-import { AlertStatus } from '@/shared/config/alertTypes';
 import AttendAlertControls from '@/features/alerts/ui/AttendAlertControls';
 
 export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
     const { memberships } = useAuth();
-    const [communityNames, setCommunityNames] = useState([]);
+    const [destinations, setDestinations] = useState([]);
     const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
-    const main = getAlertLabel(alert.alertType, alert);
+
+    const { label: main, color, icon } = resolveAlertTypePresentation(alert);
     const sub = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
     const isAttended = localStatus === AlertStatus.ATTENDED;
     const canMark = canMarkAlertAttended(alert, memberships);
+    const labels = useMemo(() => alertContentLabels(destinations), [destinations]);
 
     useEffect(() => {
         let cancelled = false;
         let emptyTimeout;
         if (alert?.communityIds?.length > 0) {
-            getCommunityNames(alert.communityIds).then((names) => {
-                if (!cancelled) setCommunityNames(names);
+            getCommunityNames(alert.communityIds).then((list) => {
+                if (!cancelled) {
+                    setDestinations(enrichDestinationsWithMemberships(list, memberships));
+                }
             });
         } else {
             emptyTimeout = setTimeout(() => {
-                if (!cancelled) setCommunityNames([]);
+                if (!cancelled) setDestinations([]);
             }, 0);
         }
         return () => {
             cancelled = true;
             if (emptyTimeout) clearTimeout(emptyTimeout);
         };
-    }, [alert?.communityIds]);
+    }, [alert?.communityIds, memberships]);
 
     useEffect(() => {
         setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
     }, [alert?.id, alert?.alertStatus]);
 
-    const Icon = LucideIcons[getAlertIcon(alert.alertType, alert)] || LucideIcons.AlertTriangle;
+    const Icon = LucideIcons[icon] || LucideIcons.AlertTriangle;
 
     return (
         <div className="map-alert-panel" role="region" aria-label="Resumen de alerta seleccionada">
-            <div className="map-alert-panel-header" style={{ background: getAlertColor(alert.alertType, alert) }}>
+            <div className="map-alert-panel-header" style={{ background: color }}>
                 <div className="map-alert-panel-header-icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
                     <Icon aria-hidden />
                 </div>
                 <div className="map-alert-panel-header-info">
+                    <div
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase',
+                            opacity: 0.85,
+                            color: 'white',
+                            marginBottom: 2,
+                        }}
+                    >
+                        {labels.typeLabel}
+                    </div>
                     <div className="map-alert-panel-header-type" style={{ lineHeight: 1.2 }}>
                         <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{main}</div>
                         {sub ? (
@@ -66,6 +88,8 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
             </div>
 
             <div className="map-alert-panel-body">
+                <AlertKeyFacts alert={alert} destinations={destinations} />
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     {alert.isAnonymous ? (
                         <>
@@ -122,12 +146,6 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                     onStatusChange={setLocalStatus}
                 />
 
-                {alert.description && (
-                    <p style={{ fontSize: 14, color: 'var(--color-text-primary)', marginBottom: 12, lineHeight: 1.5 }}>
-                        {alert.description}
-                    </p>
-                )}
-
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span className="tag tag-views"><Eye aria-hidden /> {alert.viewedCount} vistas</span>
                     <span className="tag tag-forwards"><Forward aria-hidden /> {alert.forwardsCount} reenvios</span>
@@ -135,49 +153,6 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
                         <span className="tag tag-reports"><Flag aria-hidden /> {alert.reportsCount} reportes</span>
                     )}
                 </div>
-
-                {communityNames.length > 0 && (
-                    <div style={{ marginTop: 14 }}>
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                marginBottom: 8,
-                                color: '#007AFF',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                letterSpacing: '0.05em',
-                                textTransform: 'uppercase',
-                            }}
-                        >
-                            <Users style={{ width: 13, height: 13 }} aria-hidden />
-                            Comunidades ({communityNames.length})
-                        </div>
-                        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                            {communityNames.map(({ id, name }) => (
-                                <span
-                                    key={id}
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        padding: '4px 10px',
-                                        borderRadius: 999,
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                        color: '#007AFF',
-                                        background: 'rgba(0,122,255,0.08)',
-                                        border: '1px solid rgba(0,122,255,0.25)',
-                                    }}
-                                >
-                                    <Users style={{ width: 10, height: 10 }} aria-hidden />
-                                    {name}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                )}
 
                 <button
                     type="button"

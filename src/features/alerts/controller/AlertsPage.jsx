@@ -12,6 +12,7 @@ import ViewScopeToggle from '@/features/scope/ui/ViewScopeToggle';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { useViewScope } from '@/features/scope/controller/useViewScope';
 import { filterAlertsByCommunities } from '@/features/alerts/utils/alertScope';
+import { mergeTypeOptionsFromAlerts } from '@/features/alerts/utils/alertTypePresentation';
 
 const STATUS_LABELS = {
     pending: 'No atendidas',
@@ -52,14 +53,18 @@ export default function AlertsPage() {
         setShowFilterPanel(false);
     }, [scope]);
 
+    const effectiveTypeOptions = useMemo(
+        () => mergeTypeOptionsFromAlerts(typeOptions, alerts),
+        [typeOptions, alerts],
+    );
+
     const typeLabelByKey = useMemo(() => {
         const map = new Map();
-        for (const opt of typeOptions) {
+        for (const opt of effectiveTypeOptions) {
             map.set(opt.key, opt);
         }
         return map;
-    }, [typeOptions]);
-
+    }, [effectiveTypeOptions]);
     const subscribe = useCallback((activeFilters) => {
         setLoading(true);
 
@@ -283,7 +288,7 @@ export default function AlertsPage() {
                     filters={filters}
                     onChange={applyFilters}
                     onClose={() => setShowFilterPanel(false)}
-                    typeOptions={typeOptions}
+                    typeOptions={effectiveTypeOptions}
                     typesSectionLabel={isReportsScope ? 'TIPO DE REPORTE' : 'TIPO DE ALERTA'}
                 />
             )}
