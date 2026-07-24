@@ -46,7 +46,7 @@ export default function ReportsPage() {
                     <div className="community-card-icon">
                         <CommunityIconDisplay
                             iconCodePoint={e.iconCodePoint}
-                            iconColor={e.reportButtonColor || e.iconColor}
+                            iconColor={e.iconColor}
                             size={28}
                         />
                     </div>

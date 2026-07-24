@@ -120,7 +120,6 @@ export default function CommunityDetailPage() {
             description: community.description || '',
             iconCodePoint: community.iconCodePoint ?? DEFAULT_ICON_CODE_POINT,
             iconColor: community.iconColor || DEFAULT_ICON_COLOR,
-            reportButtonColor: community.reportButtonColor || '#0D1B3E',
             reportAlertTypes: normalizeEntityReportTypes(community.reportAlertTypes),
             allowForwardToEntities: community.allowForwardToEntities !== false,
         });
@@ -204,9 +203,18 @@ export default function CommunityDetailPage() {
         e.preventDefault();
         if (!editForm) return;
         setEditErr('');
+        const trimmedName = String(editForm.name || '').trim();
+        if (isEntity && /\s/.test(trimmedName)) {
+            setEditErr('El nombre de una entidad debe ser una sola palabra (p. ej. "Policía").');
+            return;
+        }
         setBusy(true);
         try {
-            await userUpdateCommunity(communityId, editForm, memberships);
+            await userUpdateCommunity(
+                communityId,
+                { ...editForm, name: trimmedName },
+                memberships,
+            );
             setEditOpen(false);
             await reloadMemberships();
         } catch (err) {
@@ -263,7 +271,7 @@ export default function CommunityDetailPage() {
                         <div className="section-icon">
                             <CommunityIconDisplay
                                 iconCodePoint={community.iconCodePoint}
-                                iconColor={isEntity ? community.reportButtonColor : community.iconColor}
+                                iconColor={community.iconColor}
                                 size={22}
                             />
                         </div>

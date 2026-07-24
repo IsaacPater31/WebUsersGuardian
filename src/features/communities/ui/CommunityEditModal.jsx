@@ -27,6 +27,9 @@ export default function CommunityEditModal({
                             value={editForm.name}
                             onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
                             required
+                            placeholder={
+                                isEntity ? 'Una sola palabra (p. ej. Policía)' : undefined
+                            }
                         />
                     </label>
                     <label className="login-label">
@@ -38,6 +41,7 @@ export default function CommunityEditModal({
                         />
                     </label>
                     <CommunityIconPickerGrid
+                        label={isEntity ? 'Icono de la entidad' : 'Icono de la comunidad'}
                         selectedCodePoint={editForm.iconCodePoint}
                         selectedColor={editForm.iconColor}
                         onChange={({ iconCodePoint, iconColor }) =>
@@ -45,27 +49,12 @@ export default function CommunityEditModal({
                         }
                     />
                     {isEntity && (
-                        <>
-                            <label className="login-label">
-                                Color botón reportar
-                                <input
-                                    type="color"
-                                    value={editForm.reportButtonColor}
-                                    onChange={(e) =>
-                                        setEditForm((f) => ({
-                                            ...f,
-                                            reportButtonColor: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </label>
-                            <EntityAlertTypesPicker
-                                selected={editForm.reportAlertTypes}
-                                onChange={(reportAlertTypes) =>
-                                    setEditForm((f) => ({ ...f, reportAlertTypes }))
-                                }
-                            />
-                        </>
+                        <EntityAlertTypesPicker
+                            selected={editForm.reportAlertTypes}
+                            onChange={(reportAlertTypes) =>
+                                setEditForm((f) => ({ ...f, reportAlertTypes }))
+                            }
+                        />
                     )}
                     {!isEntity && (
                         <label className="login-label" style={{ flexDirection: 'row', gap: 8 }}>

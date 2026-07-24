@@ -74,9 +74,6 @@ export async function userUpdateCommunity(communityId, patch, memberships) {
     }
     if (patch.iconColor !== undefined) data[CommunityFields.iconColor] = patch.iconColor;
     if (isOfficialEntityCommunity(membership.community)) {
-        if (patch.reportButtonColor !== undefined) {
-            data[CommunityFields.reportButtonColor] = patch.reportButtonColor;
-        }
         if (patch.reportAlertTypes !== undefined) {
             data[CommunityFields.reportAlertTypes] = normalizeEntityReportTypes(
                 patch.reportAlertTypes,
