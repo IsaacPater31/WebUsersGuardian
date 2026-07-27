@@ -14,7 +14,7 @@ export default function CommunityInvitePanel({
             <div className="section-header">
                 <div className="section-header-left">
                     <div className="section-icon" style={{ background: 'rgba(0,122,255,0.1)' }}>
-                        <Link2 size={18} style={{ color: '#007AFF' }} />
+                        <Link2 size={18} style={{ color: 'var(--color-info)' }} />
                     </div>
                     <div>
                         <h3 className="section-title">Invitación</h3>

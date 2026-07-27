@@ -1,24 +1,22 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { Building2, Check, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 10;
 
 /**
- * Bottom map strip: multi-select communities with client pagination.
+ * Inline community/entity multi-select (Alerts, etc.).
+ * Selection: null = all, [] = none, string[] = subset.
  *
- * Selection model:
- * - `null`  → all communities (default)
- * - `[]`    → none (empty map)
- * - `string[]` → subset
+ * @param {Array<{ id: string, name: string, isEntity?: boolean }>} communities
  */
-export default function MapCommunityFilterBar({
+export default function CommunityScopeFilterBar({
     communities = [],
     selectedIds = null,
     onChange,
     title = 'Comunidades',
-    ariaLabel = 'Filtrar alertas por comunidad',
-    /** 'community' | 'entity' — visual accent for reports/entities */
-    variant = 'community',
+    ariaLabel = 'Filtrar por comunidad o entidad',
+    accent = 'community',
+    hideWhenEmpty = true,
 }) {
     const [page, setPage] = useState(0);
     const totalPages = Math.max(1, Math.ceil(communities.length / PAGE_SIZE));
@@ -31,6 +29,7 @@ export default function MapCommunityFilterBar({
 
     const isAll = selectedIds == null;
     const selectedCount = isAll ? 0 : selectedIds.length;
+    const TitleIcon = accent === 'entity' ? Building2 : Users;
 
     function toggle(id) {
         if (!onChange) return;
@@ -50,16 +49,16 @@ export default function MapCommunityFilterBar({
         onChange?.(null);
     }
 
-    if (!communities.length) return null;
+    if (hideWhenEmpty && !communities.length) return null;
 
     return (
-        <aside
-            className={`map-community-filter-bar${variant === 'entity' ? ' map-community-filter-bar--entity' : ''}`}
+        <div
+            className={`community-scope-filter${accent === 'entity' ? ' community-scope-filter--entity' : ''}`}
             aria-label={ariaLabel}
         >
             <div className="map-community-filter-bar-head">
                 <div className="map-community-filter-bar-title">
-                    <Users size={14} aria-hidden />
+                    <TitleIcon size={14} aria-hidden />
                     <span>{title}</span>
                     <span className="map-community-filter-bar-count" aria-live="polite">
                         {isAll ? 'Todas' : selectedCount === 0 ? 'Ninguna' : `${selectedCount} sel.`}
@@ -75,7 +74,11 @@ export default function MapCommunityFilterBar({
                         Todas
                     </button>
                     {totalPages > 1 && (
-                        <div className="map-community-filter-pager" role="navigation" aria-label="Páginas de comunidades">
+                        <div
+                            className="map-community-filter-pager"
+                            role="navigation"
+                            aria-label={`Páginas de ${title.toLowerCase()}`}
+                        >
                             <button
                                 type="button"
                                 className="map-community-filter-page-btn"
@@ -104,21 +107,25 @@ export default function MapCommunityFilterBar({
 
             <div className="map-community-filter-chips" role="group" aria-label={title}>
                 {pageItems.map((c) => {
-                    const active = isAll || selectedIds.includes(c.id);
+                    const pressed = !isAll && selectedIds.includes(c.id);
+                    const chipEntity = c.isEntity === true;
                     return (
                         <button
                             key={c.id}
                             type="button"
-                            className={`map-community-filter-chip${(!isAll && selectedIds.includes(c.id)) ? ' active' : ''}${isAll ? ' all-mode' : ''}`}
-                            aria-pressed={!isAll && selectedIds.includes(c.id)}
+                            className={`map-community-filter-chip${pressed ? ' active' : ''}${isAll ? ' all-mode' : ''}${chipEntity ? ' entity' : ''}`}
+                            aria-pressed={pressed}
                             onClick={() => toggle(c.id)}
                             title={c.name}
                         >
-                            {c.name}
+                            {pressed && (
+                                <Check size={13} aria-hidden className="community-scope-chip-check" />
+                            )}
+                            <span className="community-scope-chip-name">{c.name}</span>
                         </button>
                     );
                 })}
             </div>
-        </aside>
+        </div>
     );
 }

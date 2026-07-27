@@ -6,7 +6,7 @@ import { MapPin, EyeOff, Eye, Forward, Flag, CheckCircle2, Clock3 } from 'lucide
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
 import { resolveAlertMessage } from '@/features/alerts/utils/alertTypePresentation';
 
-export default function AlertCard({ alert, onClick }) {
+export default function AlertCard({ alert, onClick, isActive = false }) {
     const color      = getAlertColor(alert.alertType, alert);
     const iconName   = getAlertIcon(alert.alertType, alert);
     const Icon       = LucideIcons[iconName] || LucideIcons.AlertTriangle;
@@ -17,11 +17,15 @@ export default function AlertCard({ alert, onClick }) {
     const isAttended = alert.alertStatus === AlertStatus.ATTENDED;
 
     // Apple semantic colors
-    const statusColor = isAttended ? '#34C759' : '#FF9F0A';
+    /* AA-safe hexes (also used as `${statusColor}14` alpha backgrounds). */
+    const statusColor = isAttended ? '#2E7D32' : '#B45309';
     const StatusIcon  = isAttended ? CheckCircle2 : Clock3;
 
     return (
-        <div className="alert-card" onClick={() => onClick?.(alert)}>
+        <div
+            className={`alert-card${isActive ? ' alert-card--latest' : ''}${isAttended ? ' alert-card--attended' : ''}`}
+            onClick={() => onClick?.(alert)}
+        >
             {/* Icon column */}
             <div className="alert-card-icon" style={{ backgroundColor: color, position: 'relative' }}>
                 <Icon />

@@ -91,7 +91,7 @@ export function AlertDestinationList({ destinations = [] }) {
                     alignItems: 'center',
                     gap: 6,
                     marginBottom: 8,
-                    color: '#007AFF',
+                    color: 'var(--color-info)',
                     fontSize: 12,
                     fontWeight: 700,
                     letterSpacing: '0.05em',
@@ -116,7 +116,7 @@ export function AlertDestinationList({ destinations = [] }) {
                                 borderRadius: 999,
                                 fontSize: 12,
                                 fontWeight: 600,
-                                color: '#007AFF',
+                                color: 'var(--color-info)',
                                 background: 'rgba(0,122,255,0.08)',
                                 border: '1px solid rgba(0,122,255,0.25)',
                             }}

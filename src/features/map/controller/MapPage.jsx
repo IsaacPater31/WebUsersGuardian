@@ -185,7 +185,7 @@ export default function MapPage() {
     }
 
     return (
-        <div className="map-page has-community-filter">
+        <div className={`map-page${scopeCommunities.length > 0 ? ' has-community-filter' : ''}`}>
             {showToggle && (
                 <div className="view-scope-toggle-wrap map-scope-toggle-wrap">
                     <ViewScopeToggle scope={scope} onChange={handleScopeChange} show />
@@ -250,7 +250,8 @@ export default function MapPage() {
                     communities={scopeCommunities}
                     selectedIds={selectedCommunityIds}
                     onChange={setSelectedCommunityIds}
-                    title={isReportsScope ? 'Reportes' : 'Comunidades'}
+                    title={isReportsScope ? 'Entidades' : 'Comunidades'}
+                    variant={isReportsScope ? 'entity' : 'community'}
                     ariaLabel={
                         isReportsScope
                             ? 'Filtrar por entidad de reportes'

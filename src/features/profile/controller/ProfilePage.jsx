@@ -83,7 +83,7 @@ export default function ProfilePage() {
                 <div className="section-header">
                     <div className="section-header-left">
                         <div className="section-icon" style={{ background: 'rgba(0,122,255,0.1)' }}>
-                            <User size={18} style={{ color: '#007AFF' }} />
+                            <User size={18} style={{ color: 'var(--color-info)' }} />
                         </div>
                         <h2 className="section-title">Tu cuenta</h2>
                     </div>
@@ -129,7 +129,7 @@ export default function ProfilePage() {
                 <div className="section-header">
                     <div className="section-header-left">
                         <div className="section-icon" style={{ background: 'rgba(255,149,0,0.12)' }}>
-                            <Lock size={18} style={{ color: '#FF9500' }} />
+                            <Lock size={18} style={{ color: 'var(--color-warning)' }} />
                         </div>
                         <h2 className="section-title">
                             {hasPassword ? 'Cambiar contraseña' : 'Crear contraseña'}

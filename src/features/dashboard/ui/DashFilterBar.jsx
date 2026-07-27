@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Building2, ChevronDown, Users } from 'lucide-react';
 import { PRESET_DAYS, formatPeriodSummary } from '@/features/dashboard/utils/analysisHelpers';
-import {
-    filterStatsOptionsByKind,
-    reconcileSelectedCommunityIds,
-} from '@/features/dashboard/utils/statsScope';
 
 function scopeCopy({ kind, isAll, selectedCount, visibleCount }) {
     const kindNoun =
@@ -59,14 +55,16 @@ export default function DashFilterBar({
     rangeEnd,
     kind = 'all',
     onKindChange,
+    /** When false, hide Todos/Comunidades/Entidades (user only has one kind). */
+    showKindFilter = true,
+    /** Which kind chips to offer. Defaults to all three. */
+    availableKinds = ['all', 'communities', 'entities'],
     onPreset,
     onCustomMode,
     onCustomStart,
     onCustomEnd,
     /** Precomputed options for current kind (single source from Dashboard). */
     visibleOptions = [],
-    /** Full options list (all kinds) for reconcile when kind changes. */
-    allOptions = [],
     selectedCommunityIds = null,
     onCommunityChange,
 }) {
@@ -92,12 +90,8 @@ export default function DashFilterBar({
     }, [pickerOpen]);
 
     function setKindAndReconcile(nextKind) {
+        // Controller / scope hook owns reconcile + persistence (ETC).
         onKindChange?.(nextKind);
-        const nextVisible = filterStatsOptionsByKind(allOptions, nextKind);
-        const reconciled = reconcileSelectedCommunityIds(selectedCommunityIds, nextVisible);
-        if (reconciled !== selectedCommunityIds) {
-            onCommunityChange?.(reconciled);
-        }
     }
 
     function toggleCommunity(id) {
@@ -156,40 +150,50 @@ export default function DashFilterBar({
                 </div>
 
                 <div className="dash-glass-scope">
-                    <span className="dash-filter-field-label" id="dash-kind-label">
-                        Tipo
-                    </span>
-                    <div
-                        className="admin-segmented admin-segmented--ios dash-kind-segments"
-                        role="group"
-                        aria-labelledby="dash-kind-label"
-                    >
-                        {[
-                            { key: 'all', label: 'Todos', aria: 'Mostrar comunidades y entidades' },
-                            { key: 'communities', label: 'Comunidades', aria: 'Solo comunidades' },
-                            { key: 'entities', label: 'Entidades', aria: 'Solo entidades' },
-                        ].map((opt) => (
-                            <button
-                                key={opt.key}
-                                type="button"
-                                className={`admin-segment${kind === opt.key ? ' active' : ''}`}
-                                aria-pressed={kind === opt.key}
-                                aria-label={opt.aria}
-                                onClick={() => setKindAndReconcile(opt.key)}
+                    {showKindFilter ? (
+                        <>
+                            <span className="dash-filter-field-label" id="dash-kind-label">
+                                Tipo
+                            </span>
+                            <div
+                                className="admin-segmented admin-segmented--ios dash-kind-segments"
+                                role="group"
+                                aria-labelledby="dash-kind-label"
                             >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
+                                {[
+                                    { key: 'all', label: 'Todos', aria: 'Mostrar comunidades y entidades' },
+                                    { key: 'communities', label: 'Comunidades', aria: 'Solo comunidades' },
+                                    { key: 'entities', label: 'Entidades', aria: 'Solo entidades' },
+                                ]
+                                    .filter((opt) => availableKinds.includes(opt.key))
+                                    .map((opt) => (
+                                        <button
+                                            key={opt.key}
+                                            type="button"
+                                            className={`admin-segment${kind === opt.key ? ' active' : ''}`}
+                                            aria-pressed={kind === opt.key}
+                                            aria-label={opt.aria}
+                                            onClick={() => setKindAndReconcile(opt.key)}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                            </div>
+                        </>
+                    ) : null}
                     <button
                         type="button"
-                        className={`dash-scope-btn${pickerOpen ? ' open' : ''}${!isAllCommunities ? ' filtered' : ''}`}
+                        className={`dash-scope-btn${pickerOpen ? ' open' : ''}${!isAllCommunities ? ' filtered' : ''}${kind === 'entities' ? ' dash-scope-btn--entity' : ''}`}
                         aria-expanded={pickerOpen}
                         aria-controls="dash-community-picker"
                         aria-label={scope.aria}
                         onClick={() => setPickerOpen((v) => !v)}
                     >
-                        <Users size={16} aria-hidden className="dash-scope-btn-icon" />
+                        {kind === 'entities' ? (
+                            <Building2 size={16} aria-hidden className="dash-scope-btn-icon" />
+                        ) : (
+                            <Users size={16} aria-hidden className="dash-scope-btn-icon" />
+                        )}
                         <span className="dash-scope-btn-copy">
                             <span className="dash-scope-btn-kicker">{scope.kicker}</span>
                             <span className="dash-scope-btn-label">{scope.label}</span>

@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { subscribeToAlertsFiltered } from '@/features/alerts/repository/alertRepository';
+import {
+    subscribeToAlertsFiltered,
+    isActivePendingAlert,
+    resolveLatestPendingAlertId,
+} from '@/features/alerts/repository/alertRepository';
 import { getAlertColor, getAlertLabel } from '@/shared/config/alertTypes';
 import AlertCard from '@/features/alerts/ui/AlertCard';
 import AlertDetailModal from '@/features/alerts/ui/AlertDetailModal';
@@ -9,6 +13,7 @@ import AlertFilterPanel, {
     countActiveFiltersCompat,
 } from '@/features/alerts/ui/AlertFilters';
 import ViewScopeToggle from '@/features/scope/ui/ViewScopeToggle';
+import CommunityScopeFilterBar from '@/features/communities/ui/CommunityScopeFilterBar';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { useViewScope } from '@/features/scope/controller/useViewScope';
 import { filterAlertsByCommunities } from '@/features/alerts/utils/alertScope';
@@ -35,23 +40,43 @@ export default function AlertsPage() {
         setScope,
         showToggle,
         scopeIds,
+        scopeCommunities,
         typeOptions,
         isReportsScope,
         hasAnyScope,
         ready,
     } = useViewScope();
 
-    const [alerts, setAlerts] = useState([]);
+    const [rawAlerts, setRawAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedAlert, setSelectedAlert] = useState(null);
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [showFilterPanel, setShowFilterPanel] = useState(false);
+    /** null = all in scope; [] = none; [ids] = subset */
+    const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
 
     useEffect(() => {
+        setSelectedCommunityIds(null);
         setFilters((prev) => ({ ...prev, types: [] }));
         setSelectedAlert(null);
         setShowFilterPanel(false);
     }, [scope]);
+
+    const effectiveCommunityIds = useMemo(() => {
+        if (selectedCommunityIds == null) return scopeIds;
+        return selectedCommunityIds;
+    }, [selectedCommunityIds, scopeIds]);
+
+    const alerts = useMemo(
+        () => filterAlertsByCommunities(rawAlerts, effectiveCommunityIds),
+        [rawAlerts, effectiveCommunityIds],
+    );
+
+    /* Business rule: the newest unattended alert in the visible scope is highlighted. */
+    const latestPendingAlertId = useMemo(
+        () => resolveLatestPendingAlertId(alerts),
+        [alerts],
+    );
 
     const effectiveTypeOptions = useMemo(
         () => mergeTypeOptionsFromAlerts(typeOptions, alerts),
@@ -65,16 +90,15 @@ export default function AlertsPage() {
         }
         return map;
     }, [effectiveTypeOptions]);
+
     const subscribe = useCallback((activeFilters) => {
         setLoading(true);
-
         const unsub = subscribeToAlertsFiltered(activeFilters, (data) => {
-            setAlerts(filterAlertsByCommunities(data, scopeIds));
+            setRawAlerts(data);
             setLoading(false);
         });
-
         return unsub;
-    }, [scopeIds]);
+    }, []);
 
     useEffect(() => {
         const unsub = subscribe(filters);
@@ -89,8 +113,23 @@ export default function AlertsPage() {
 
     const activeCount = countActiveFiltersCompat(filters);
     const hasFilters = activeCount > 0;
+    const communityFilterActive = selectedCommunityIds != null;
 
     const activeChips = [];
+
+    if (communityFilterActive) {
+        const label = selectedCommunityIds.length === 0
+            ? 'Sin comunidades'
+            : selectedCommunityIds.length === 1
+              ? scopeCommunities.find((c) => c.id === selectedCommunityIds[0])?.name || '1 seleccionada'
+              : `${selectedCommunityIds.length} comunidades`;
+        activeChips.push({
+            key: 'community-scope',
+            label,
+            color: isReportsScope ? '#4F4DC1' : '#1565C0',
+            onRemove: () => setSelectedCommunityIds(null),
+        });
+    }
 
     if (filters.types.length > 0) {
         filters.types.forEach((type) => {
@@ -112,7 +151,7 @@ export default function AlertsPage() {
         activeChips.push({
             key: 'status',
             label: STATUS_LABELS[filters.status],
-            color: filters.status === 'attended' ? '#34C759' : '#FF9500',
+            color: filters.status === 'attended' ? '#2E7D32' : '#B45309',
             onRemove: () => setFilters((prev) => ({ ...prev, status: 'all' })),
         });
     }
@@ -159,57 +198,81 @@ export default function AlertsPage() {
                 </div>
             )}
 
-            <div className="filter-toolbar">
-                <button
-                    id="alerts-filter-btn"
-                    type="button"
-                    className={`filter-toolbar-btn${hasFilters ? ' active' : ''}`}
-                    onClick={() => setShowFilterPanel(true)}
-                >
-                    <LucideIcons.SlidersHorizontal style={{ width: 15, height: 15 }} />
-                    Filtros
-                    {hasFilters && (
-                        <span className="filter-toolbar-badge">{activeCount}</span>
-                    )}
-                </button>
+            <div className="alerts-toolbar-card">
+                {scopeCommunities.length > 0 && (
+                    <CommunityScopeFilterBar
+                        communities={scopeCommunities}
+                        selectedIds={selectedCommunityIds}
+                        onChange={setSelectedCommunityIds}
+                        title={isReportsScope ? 'Entidades' : 'Comunidades'}
+                        accent={isReportsScope ? 'entity' : 'community'}
+                        ariaLabel={
+                            isReportsScope
+                                ? 'Filtrar reportes por entidad'
+                                : 'Filtrar alertas por comunidad'
+                        }
+                    />
+                )}
 
-                {activeChips.map((chip) => (
-                    <span
-                        key={chip.key}
-                        className="filter-active-chip"
-                        style={{ borderColor: chip.color, color: chip.color, background: `${chip.color}15` }}
+                <div className="filter-toolbar">
+                    <button
+                        id="alerts-filter-btn"
+                        type="button"
+                        className={`filter-toolbar-btn${hasFilters ? ' active' : ''}`}
+                        onClick={() => setShowFilterPanel(true)}
                     >
-                        {chip.label}
+                        <LucideIcons.SlidersHorizontal style={{ width: 15, height: 15 }} />
+                        Filtros
+                        {hasFilters && (
+                            <span className="filter-toolbar-badge">{activeCount}</span>
+                        )}
+                    </button>
+
+                    {activeChips.map((chip) => (
+                        <span
+                            key={chip.key}
+                            className="filter-active-chip"
+                            style={{ borderColor: chip.color, color: chip.color, background: `${chip.color}15` }}
+                        >
+                            {chip.label}
+                            <button
+                                type="button"
+                                onClick={chip.onRemove}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    color: 'inherit',
+                                }}
+                            >
+                                <LucideIcons.X style={{ width: 11, height: 11 }} />
+                            </button>
+                        </span>
+                    ))}
+
+                    {(hasFilters || communityFilterActive) && (
                         <button
                             type="button"
-                            onClick={chip.onRemove}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                color: 'inherit',
+                            className="filter-clear-all-btn"
+                            onClick={() => {
+                                clearFilters();
+                                setSelectedCommunityIds(null);
                             }}
                         >
-                            <LucideIcons.X style={{ width: 11, height: 11 }} />
+                            Limpiar todo
                         </button>
-                    </span>
-                ))}
+                    )}
 
-                {hasFilters && (
-                    <button type="button" className="filter-clear-all-btn" onClick={clearFilters}>
-                        Limpiar todo
-                    </button>
-                )}
-
-                {loading && alerts.length > 0 && (
-                    <span className="filter-loading-indicator">
-                        <span className="filter-loading-dot" />
-                        Actualizando…
-                    </span>
-                )}
+                    {loading && alerts.length > 0 && (
+                        <span className="filter-loading-indicator">
+                            <span className="filter-loading-dot" />
+                            Actualizando…
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div className="section">
@@ -219,7 +282,7 @@ export default function AlertsPage() {
                             <LucideIcons.AlertTriangle style={{ color: '#FF3B30' }} />
                         </div>
                         <h3 className="section-title">
-                            {hasFilters
+                            {hasFilters || communityFilterActive
                                 ? (isReportsScope ? 'Reportes filtrados' : 'Alertas filtradas')
                                 : (isReportsScope ? 'Todos los reportes' : 'Todas las alertas')}
                         </h3>
@@ -246,13 +309,13 @@ export default function AlertsPage() {
                                 {isReportsScope ? 'Sin reportes' : 'Sin alertas'}
                             </div>
                             <div className="empty-state-desc">
-                                {hasFilters
+                                {hasFilters || communityFilterActive
                                     ? 'No hay resultados que coincidan con los filtros aplicados.'
                                     : (isReportsScope
                                         ? 'No hay reportes recientes en tus entidades.'
                                         : 'No hay alertas recientes.')}
                             </div>
-                            {hasFilters && (
+                            {(hasFilters || communityFilterActive) && (
                                 <button
                                     type="button"
                                     style={{
@@ -265,7 +328,10 @@ export default function AlertsPage() {
                                         fontSize: 'var(--font-size-sm)',
                                         color: 'var(--color-text-secondary)',
                                     }}
-                                    onClick={clearFilters}
+                                    onClick={() => {
+                                        clearFilters();
+                                        setSelectedCommunityIds(null);
+                                    }}
                                 >
                                     Limpiar filtros
                                 </button>
@@ -277,6 +343,7 @@ export default function AlertsPage() {
                                 key={alert.id}
                                 alert={alert}
                                 onClick={setSelectedAlert}
+                                isActive={isActivePendingAlert(alert, latestPendingAlertId)}
                             />
                         ))
                     )}

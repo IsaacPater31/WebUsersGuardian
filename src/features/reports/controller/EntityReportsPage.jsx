@@ -43,7 +43,7 @@ function ReportRow({ alert, onClick }) {
                     {getTimeAgo(alert.timestamp)}
                 </div>
             </div>
-            <span className="report-status-pill">
+            <span className={`report-status-pill${isAttended ? ' report-status-pill--ok' : ''}`}>
                 {isAttended ? 'Atendido' : 'Pendiente'}
             </span>
         </div>

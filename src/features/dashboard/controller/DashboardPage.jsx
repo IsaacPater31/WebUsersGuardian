@@ -17,9 +17,12 @@ import {
     BarChart3,
     Users,
 } from 'lucide-react';
-import { subscribeToAlertsInDateRange, isActivePendingAlert } from '@/features/alerts/repository/alertRepository';
+import {
+    subscribeToAlertsInDateRange,
+    isActivePendingAlert,
+    resolveLatestPendingAlertId,
+} from '@/features/alerts/repository/alertRepository';
 import { subscribeUsersInCreatedRange } from '@/features/admin/repository/adminDirectoryRepository';
-import { subscribeToCommunities } from '@/features/communities/repository/communityRepository';
 import AlertCard from '@/features/alerts/ui/AlertCard';
 import AlertDetailModal from '@/features/alerts/ui/AlertDetailModal';
 import DashFilterBar from '@/features/dashboard/ui/DashFilterBar';
@@ -33,11 +36,8 @@ import {
     formatDayLabel,
     buildScopedAlertStats,
 } from '@/features/dashboard/utils/analysisHelpers';
-import {
-    scopeAlertsByCommunities,
-    buildStatsCommunityOptions,
-    filterStatsOptionsByKind,
-} from '@/features/dashboard/utils/statsScope';
+import { scopeAlertsByCommunities } from '@/features/dashboard/utils/statsScope';
+import { useMembershipAdminScope } from '@/features/scope/controller/useMembershipAdminScope';
 
 function toIsoDate(d) {
     const x = new Date(d);
@@ -48,6 +48,19 @@ function toIsoDate(d) {
 }
 
 export default function Dashboard() {
+    const {
+        ready: scopeReady,
+        hasScope,
+        visibleOptions,
+        availableKinds,
+        showKindFilter,
+        kind,
+        setKind,
+        selectedIds,
+        setSelectedIds,
+        effectiveIds,
+    } = useMembershipAdminScope();
+
     const [rangeMode, setRangeMode] = useState('preset');
     const [presetDays, setPresetDays] = useState(30);
     const [customStart, setCustomStart] = useState('');
@@ -55,11 +68,7 @@ export default function Dashboard() {
     const [bootstrapping, setBootstrapping] = useState(true);
     const [rawAlerts, setRawAlerts] = useState([]);
     const [newUsers, setNewUsers] = useState([]);
-    const [communities, setCommunities] = useState([]);
-    const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
-    const [kindFilter, setKindFilter] = useState('all');
     const [selectedAlert, setSelectedAlert] = useState(null);
-    const [latestContextAlertId, setLatestContextAlertId] = useState(null);
     const hasBootstrappedRef = useRef(false);
     const [chartH, setChartH] = useState(280);
 
@@ -71,8 +80,6 @@ export default function Dashboard() {
         window.addEventListener('resize', update);
         return () => window.removeEventListener('resize', update);
     }, []);
-
-    useEffect(() => subscribeToCommunities(setCommunities), []);
 
     const {
         start: rangeStart,
@@ -93,17 +100,17 @@ export default function Dashboard() {
     }, [rangeStart, rangeEnd, rangeIncomplete]);
 
     useEffect(() => {
-        if (rangeIncomplete) {
+        if (!scopeReady || rangeIncomplete) {
             setRawAlerts([]);
+            if (!scopeReady) return undefined;
             if (!hasBootstrappedRef.current) {
                 hasBootstrappedRef.current = true;
                 setBootstrapping(false);
             }
             return undefined;
         }
-        const unsub = subscribeToAlertsInDateRange(rangeStart, rangeEnd, (alData, meta = {}) => {
+        const unsub = subscribeToAlertsInDateRange(rangeStart, rangeEnd, (alData) => {
             setRawAlerts(alData);
-            setLatestContextAlertId(meta.latestContextAlertId ?? null);
 
             if (!hasBootstrappedRef.current) {
                 hasBootstrappedRef.current = true;
@@ -112,7 +119,7 @@ export default function Dashboard() {
         }, 2500);
 
         return unsub;
-    }, [rangeStart, rangeEnd, rangeIncomplete]);
+    }, [rangeStart, rangeEnd, rangeIncomplete, scopeReady]);
 
     function enterCustomRange() {
         setRangeMode('custom');
@@ -122,23 +129,16 @@ export default function Dashboard() {
         }
     }
 
-    const communityOptions = useMemo(
-        () => buildStatsCommunityOptions(communities),
-        [communities],
+    const scopedAlerts = useMemo(
+        () => scopeAlertsByCommunities(rawAlerts, effectiveIds),
+        [rawAlerts, effectiveIds],
     );
 
-    const visibleCommunityOptions = useMemo(
-        () => filterStatsOptionsByKind(communityOptions, kindFilter),
-        [communityOptions, kindFilter],
+    /* Business rule: newest unattended alert in the visible scope is highlighted. */
+    const latestPendingAlertId = useMemo(
+        () => resolveLatestPendingAlertId(scopedAlerts),
+        [scopedAlerts],
     );
-
-    const scopedAlerts = useMemo(() => {
-        let ids = selectedCommunityIds;
-        if (ids == null && kindFilter !== 'all') {
-            ids = visibleCommunityOptions.map((o) => o.id);
-        }
-        return scopeAlertsByCommunities(rawAlerts, ids);
-    }, [rawAlerts, selectedCommunityIds, visibleCommunityOptions, kindFilter]);
 
     const stats = useMemo(
         () => buildScopedAlertStats(scopedAlerts, rangeStart, rangeEnd),
@@ -168,10 +168,23 @@ export default function Dashboard() {
         [activeByDay],
     );
 
-    if (bootstrapping) {
+    if (!scopeReady || bootstrapping) {
         return (
             <div className="loading-container">
                 <div className="loading-spinner" />
+            </div>
+        );
+    }
+
+    if (!hasScope) {
+        return (
+            <div className="dash-page">
+                <div className="section section--dash">
+                    <p className="admin-muted admin-empty-inset">
+                        No perteneces a ninguna comunidad ni entidad. Cuando te agreguen a una,
+                        podrás filtrar y ver sus estadísticas aquí.
+                    </p>
+                </div>
             </div>
         );
     }
@@ -185,8 +198,10 @@ export default function Dashboard() {
                 customEnd={customEnd}
                 rangeStart={rangeStart}
                 rangeEnd={rangeEnd}
-                kind={kindFilter}
-                onKindChange={setKindFilter}
+                kind={kind}
+                onKindChange={setKind}
+                showKindFilter={showKindFilter}
+                availableKinds={availableKinds}
                 onPreset={(d) => {
                     setRangeMode('preset');
                     setPresetDays(d);
@@ -194,10 +209,9 @@ export default function Dashboard() {
                 onCustomMode={enterCustomRange}
                 onCustomStart={setCustomStart}
                 onCustomEnd={setCustomEnd}
-                allOptions={communityOptions}
-                visibleOptions={visibleCommunityOptions}
-                selectedCommunityIds={selectedCommunityIds}
-                onCommunityChange={setSelectedCommunityIds}
+                visibleOptions={visibleOptions}
+                selectedCommunityIds={selectedIds}
+                onCommunityChange={setSelectedIds}
             />
 
             <div className="dash-main">
@@ -223,7 +237,7 @@ export default function Dashboard() {
                             label: 'Reportes',
                             value: stats.reports,
                             icon: BarChart3,
-                            color: '#FF9500',
+                            color: 'var(--color-warning)',
                             bg: 'rgba(255, 149, 0, 0.1)',
                             variant: 'report',
                         },
@@ -266,7 +280,7 @@ export default function Dashboard() {
                         <div className="section-header">
                             <div className="section-header-left">
                                 <div className="section-icon" style={{ background: 'rgba(0, 122, 255, 0.1)' }}>
-                                    <Activity style={{ color: '#007AFF' }} />
+                                    <Activity style={{ color: 'var(--color-info)' }} />
                                 </div>
                                 <div>
                                     <h3 className="section-title">Alertas por día</h3>
@@ -315,7 +329,7 @@ export default function Dashboard() {
                     <div className="section-header">
                         <div className="section-header-left">
                             <div className="section-icon" style={{ background: 'rgba(52, 199, 89, 0.12)' }}>
-                                <Users style={{ color: '#34C759' }} />
+                                <Users style={{ color: 'var(--color-success)' }} />
                             </div>
                             <div>
                                 <h3 className="section-title">Usuarios más activos</h3>
@@ -362,7 +376,7 @@ export default function Dashboard() {
                     <div className="section-header">
                         <div className="section-header-left">
                             <div className="section-icon" style={{ background: 'rgba(0, 122, 255, 0.1)' }}>
-                                <BarChart3 style={{ color: '#007AFF' }} />
+                                <BarChart3 style={{ color: 'var(--color-info)' }} />
                             </div>
                             <div>
                                 <h3 className="section-title">Usuarios activos por día</h3>
@@ -439,7 +453,7 @@ export default function Dashboard() {
                         <div className="section-header">
                             <div className="section-header-left">
                                 <div className="section-icon" style={{ background: 'rgba(52, 199, 89, 0.1)' }}>
-                                    <UserPlus style={{ color: '#34C759' }} />
+                                    <UserPlus style={{ color: 'var(--color-success)' }} />
                                 </div>
                                 <div>
                                     <h3 className="section-title">Usuarios recientes</h3>
@@ -517,7 +531,7 @@ export default function Dashboard() {
                                         key={a.id}
                                         alert={a}
                                         onClick={setSelectedAlert}
-                                        isActive={isActivePendingAlert(a, latestContextAlertId)}
+                                        isActive={isActivePendingAlert(a, latestPendingAlertId)}
                                     />
                                 ))
                             )}

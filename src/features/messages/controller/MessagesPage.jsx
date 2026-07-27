@@ -62,7 +62,7 @@ export default function MessagesPage() {
                 <div className="section-header">
                     <div className="section-header-left">
                         <div className="section-icon" style={{ background: 'rgba(0,122,255,0.1)' }}>
-                            <Send size={18} style={{ color: '#007AFF' }} />
+                            <Send size={18} style={{ color: 'var(--color-info)' }} />
                         </div>
                         <div>
                             <h2 className="section-title">Nuevo mensaje</h2>

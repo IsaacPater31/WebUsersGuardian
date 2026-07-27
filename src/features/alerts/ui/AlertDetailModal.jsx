@@ -120,7 +120,7 @@ function InfoRow({ icon, iconColor = 'var(--color-text-tertiary)', label, childr
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
                     fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em',
-                    color: accent ? `${accent}AA` : 'var(--color-text-tertiary)',
+                    color: 'var(--color-text-tertiary)',
                     marginBottom: 3, textTransform: 'uppercase',
                 }}>
                     {label}
@@ -271,23 +271,23 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                                 background: isAttended ? '#34C75920' : '#FF9F0A20',
                             }}>
                                 {isAttended
-                                    ? <LucideIcons.CheckCircle2 style={{ width: 20, height: 20, color: '#34C759' }} />
-                                    : <LucideIcons.ClockAlert   style={{ width: 20, height: 20, color: '#FF9F0A' }} />
+                                    ? <LucideIcons.CheckCircle2 style={{ width: 20, height: 20, color: 'var(--color-success)' }} />
+                                    : <LucideIcons.ClockAlert   style={{ width: 20, height: 20, color: 'var(--color-warning)' }} />
                                 }
                             </div>
                             <div style={{ flex: 1 }}>
                                 <div style={{
                                     fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em',
-                                    color: isAttended ? '#34C759AA' : '#FF9F0AAA',
+                                    color: isAttended ? 'var(--color-success)' : 'var(--color-warning)',
                                     textTransform: 'uppercase', marginBottom: 3,
                                 }}>
                                     {es('Estado de la alerta')}
                                 </div>
-                                <div style={{ fontSize: '15px', fontWeight: 700, color: isAttended ? '#34C759' : '#FF9F0A' }}>
+                                <div style={{ fontSize: '15px', fontWeight: 700, color: isAttended ? 'var(--color-success)' : 'var(--color-warning)' }}>
                                     {isAttended ? es('Atendida') : es('No atendida')}
                                 </div>
                                 <div style={{
-                                    fontSize: '12px', color: isAttended ? '#34C759AA' : '#FF9F0AAA',
+                                    fontSize: '12px', color: isAttended ? 'var(--color-success)' : 'var(--color-warning)',
                                     marginTop: 2, lineHeight: 1.3,
                                 }}>
                                     {isAttended
@@ -317,7 +317,7 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                             background: `${color}10`,
                             border: `1.5px solid ${color}33`,
                         }}>
-                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: `${color}AA`, textTransform: 'uppercase', marginBottom: 6 }}>
+                            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>
                                 {es(labels.typeLabel)}
                             </div>
                             <div style={{ fontSize: '18px', fontWeight: 800, color, marginBottom: 14 }}>
@@ -377,7 +377,7 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                     <div className="modal-section">
                         <div className="modal-stats">
                             <div className="modal-stat">
-                                <div className="modal-stat-value" style={{ color: '#007AFF' }}>{alert.viewedCount}</div>
+                                <div className="modal-stat-value" style={{ color: 'var(--color-info)' }}>{alert.viewedCount}</div>
                                 <div className="modal-stat-label">{es('Vistas')}</div>
                             </div>
                             <div className="modal-stat">
@@ -406,7 +406,7 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                                 marginTop: 8, fontSize: 'var(--font-size-sm)',
                                 color: 'var(--color-text-secondary)',
                             }}>
-                                <MapPin style={{ width: 12, height: 12, color: '#34C759' }} />
+                                <MapPin style={{ width: 12, height: 12, color: 'var(--color-success)' }} />
                                 {alert.location.latitude?.toFixed(6)}, {alert.location.longitude?.toFixed(6)}
                             </div>
                         </div>
