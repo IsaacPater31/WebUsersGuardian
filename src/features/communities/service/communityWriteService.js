@@ -10,9 +10,10 @@ import {
     serverTimestamp,
     updateDoc,
 } from 'firebase/firestore';
-import { db } from '@/shared/api/firebase';
+import { auth, db } from '@/shared/api/firebase';
 import { Collections } from '@/shared/config/collections';
 import { CommunityFields, MemberFields, UserFields } from '@/shared/config/firestoreFields';
+import { assertUserNotSuspended } from '@/features/auth/repository/userRepository';
 import { canManageMembership } from '@/shared/domain/permissions';
 import { isOfficialEntityCommunity } from '@/shared/domain/communityVisibility';
 import { getCommunityMembers } from '@/features/communities/repository/communityRepository';
@@ -26,7 +27,14 @@ function normalizeRole(role) {
     return String(role || '').trim().toLowerCase() || MemberFields.roleMember;
 }
 
+async function assertActiveCaller() {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error('Usuario no autenticado');
+    await assertUserNotSuspended(uid);
+}
+
 async function assertCanManage(communityId, memberships) {
+    await assertActiveCaller();
     const membership = memberships.find((m) => m.communityId === communityId);
     if (!membership?.community) {
         throw new Error('No perteneces a esta comunidad');
@@ -181,6 +189,7 @@ export async function countManagers(communityId, isEntity) {
 }
 
 export async function userLeaveCommunity(memberDocId, communityId, memberships) {
+    await assertActiveCaller();
     const mine = memberships.find((m) => m.communityId === communityId);
     if (!mine) throw new Error('No perteneces a esta comunidad');
     const isEntity = isOfficialEntityCommunity(mine.community);

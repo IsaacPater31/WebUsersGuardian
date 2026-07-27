@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
+import {
+    ACCOUNT_SUSPENDED_CODE,
+    ACCOUNT_STATUS_UNAVAILABLE_CODE,
+} from '@/features/auth/repository/userRepository';
 
 export default function LoginPage() {
-    const { user, login, loginWithGoogle } = useAuth();
+    const { user, login, loginWithGoogle, accountSuspended, accountSuspendedMessage } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const from = location.state?.from || '/';
@@ -14,6 +18,12 @@ export default function LoginPage() {
     const [busy, setBusy] = useState(false);
     const [googleBusy, setGoogleBusy] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (accountSuspended) {
+            setError(accountSuspendedMessage || 'Tu cuenta está suspendida. Contacta al administrador.');
+        }
+    }, [accountSuspended, accountSuspendedMessage]);
 
     if (user) {
         return <Navigate to={from} replace />;
@@ -29,7 +39,11 @@ export default function LoginPage() {
             }
         } catch (err) {
             const code = err?.code || '';
-            if (code === 'auth/account-exists-with-different-credential') {
+            if (code === ACCOUNT_SUSPENDED_CODE) {
+                setError(err.message || 'Tu cuenta está suspendida. Contacta al administrador.');
+            } else if (code === ACCOUNT_STATUS_UNAVAILABLE_CODE) {
+                setError(err.message || 'No se pudo verificar el estado de la cuenta. Intenta de nuevo.');
+            } else if (code === 'auth/account-exists-with-different-credential') {
                 setError('Ya existe una cuenta con este correo usando otro método de inicio de sesión.');
             } else if (code === 'auth/popup-blocked') {
                 setError('El navegador bloqueó la ventana emergente. Permite ventanas emergentes e intenta de nuevo.');
@@ -54,7 +68,11 @@ export default function LoginPage() {
             navigate(from, { replace: true });
         } catch (err) {
             const code = err?.code || '';
-            if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
+            if (code === ACCOUNT_SUSPENDED_CODE) {
+                setError(err.message || 'Tu cuenta está suspendida. Contacta al administrador.');
+            } else if (code === ACCOUNT_STATUS_UNAVAILABLE_CODE) {
+                setError(err.message || 'No se pudo verificar el estado de la cuenta. Intenta de nuevo.');
+            } else if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
                 setError('Correo o contraseña incorrectos');
             } else if (code === 'auth/too-many-requests') {
                 setError('Demasiados intentos. Intenta más tarde.');
