@@ -38,7 +38,7 @@ export default function CommunityMembersPanel({
                         <div className="admin-add-form admin-add-form--stacked">
                             <input
                                 className="login-input"
-                                placeholder="Nombre, correo o UID"
+                                placeholder="Nombre o correo"
                                 value={memberSearch}
                                 onChange={(e) => onMemberSearchChange(e.target.value)}
                             />
