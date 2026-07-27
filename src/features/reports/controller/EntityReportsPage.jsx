@@ -8,14 +8,21 @@ import { AlertStatus, getAlertColor, getAlertIcon, getAlertLabel, getTimeAgo } f
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
 import { filterAlertsByUser } from '@/features/alerts/utils/alertScope';
 import AlertDetailModal from '@/features/alerts/ui/AlertDetailModal';
+import { getMemberAliasMap } from '@/features/communities/repository/communityRepository';
+import { resolveAlertSenderLabel } from '@/shared/utils/memberDisplayLabel';
 
-function ReportRow({ alert, onClick }) {
+function ReportRow({ alert, onClick, senderLabel = null }) {
     const color = getAlertColor(alert.alertType, alert);
     const iconName = getAlertIcon(alert.alertType, alert);
     const Icon = LucideIcons[iconName] || LucideIcons.AlertTriangle;
     const sub = getSubtypeLabel(alert.alertType, alert.subtype, alert.customDetail, true);
     const isAttended = alert.alertStatus === AlertStatus.ATTENDED;
     const label = getAlertLabel(alert.alertType, alert);
+    const reporter = alert.isAnonymous
+        ? 'Anónimo'
+        : (String(senderLabel ?? '').trim()
+            || String(alert.userName ?? '').trim()
+            || 'Usuario');
 
     return (
         <div
@@ -38,7 +45,7 @@ function ReportRow({ alert, onClick }) {
                 <div className="report-row-title">{label}</div>
                 {sub && <div className="report-row-sub">{sub}</div>}
                 <div className="report-row-meta">
-                    {alert.isAnonymous ? 'Anónimo' : (alert.userName || alert.userEmail || 'Usuario')}
+                    {reporter}
                     {' · '}
                     {getTimeAgo(alert.timestamp)}
                 </div>
@@ -57,6 +64,7 @@ export default function EntityReportsPage() {
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState(null);
+    const [aliasMap, setAliasMap] = useState({});
 
     const membership = memberships.find((m) => m.communityId === entityId);
     const entity = membership?.community;
@@ -75,6 +83,21 @@ export default function EntityReportsPage() {
         });
         return unsub;
     }, [entityId, user]);
+
+    useEffect(() => {
+        if (!entityId) {
+            setAliasMap({});
+            return undefined;
+        }
+        let cancelled = false;
+        getMemberAliasMap(entityId).then((map) => {
+            if (!cancelled) setAliasMap(map);
+        }).catch((err) => {
+            console.warn("[EntityReportsPage] alias map", err);
+            if (!cancelled) setAliasMap({});
+        });
+        return () => { cancelled = true; };
+    }, [entityId]);
 
     if (authLoading || loading) {
         return (
@@ -124,6 +147,7 @@ export default function EntityReportsPage() {
                                 <ReportRow
                                     key={r.id}
                                     alert={r}
+                                    senderLabel={resolveAlertSenderLabel(r, aliasMap[r.userId])}
                                     onClick={setSelected}
                                 />
                             ))}

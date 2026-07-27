@@ -12,6 +12,7 @@ import {
     userAddCommunityMember,
     userRemoveMember,
     userUpdateMemberRole,
+    userUpdateMemberAlias,
     userUpdateCommunity,
 } from '@/features/communities/service/communityWriteService';
 import { searchUsersByText } from '@/features/communities/repository/userSearchRepository';
@@ -37,6 +38,7 @@ import {
 } from '@/shared/config/communityIconCatalog';
 import { normalizeEntityReportTypes } from '@/features/reports/utils/entityReportTypes';
 import AlertDetailModal from '@/features/alerts/ui/AlertDetailModal';
+import { resolveAlertSenderLabel } from '@/shared/utils/memberDisplayLabel';
 
 /**
  * Community / entity detail controller — composes feature UI panels.
@@ -68,6 +70,8 @@ export default function CommunityDetailPage() {
     const [searchErr, setSearchErr] = useState('');
     const searchDebounceRef = useRef(null);
     const [newRole, setNewRole] = useState('member');
+    const [newAlias, setNewAlias] = useState('');
+    const [aliasMap, setAliasMap] = useState({});
     const [busy, setBusy] = useState(false);
 
     const [editOpen, setEditOpen] = useState(false);
@@ -106,6 +110,15 @@ export default function CommunityDetailPage() {
             unsubAlerts();
         };
     }, [communityId]);
+
+    useEffect(() => {
+        const map = {};
+        for (const m of members) {
+            const alias = String(m.alias ?? '').trim();
+            if (m.userId && alias) map[m.userId] = alias;
+        }
+        setAliasMap(map);
+    }, [members]);
 
     useEffect(() => {
         if (!showAlertsTab && activeTab === 'alerts') {
@@ -159,9 +172,10 @@ export default function CommunityDetailPage() {
             await userAddCommunityMember(communityId, u.id, newRole, memberships, {
                 actorId: user?.uid,
                 actorName: user?.displayName || user?.email || null,
-            });
+            }, newAlias.trim() || undefined);
             setMemberSearch('');
             setSearchResults([]);
+            setNewAlias('');
         } catch (err) {
             setSearchErr(err?.message || 'No se pudo agregar');
         } finally {
@@ -192,6 +206,17 @@ export default function CommunityDetailPage() {
                 actorName: user?.displayName || user?.email || null,
             });
             await reloadMemberships();
+        } catch (err) {
+            alert(err?.message || 'Error');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function updateAlias(memberId, alias) {
+        setBusy(true);
+        try {
+            await userUpdateMemberAlias(memberId, alias, communityId, memberships);
         } catch (err) {
             alert(err?.message || 'Error');
         } finally {
@@ -324,6 +349,7 @@ export default function CommunityDetailPage() {
                     alerts={alerts}
                     isEntity={isEntity}
                     onSelectAlert={setSelectedAlert}
+                    aliasMap={aliasMap}
                 />
             )}
 
@@ -339,11 +365,14 @@ export default function CommunityDetailPage() {
                     onMemberSearchChange={setMemberSearch}
                     newRole={newRole}
                     onNewRoleChange={setNewRole}
+                    newAlias={newAlias}
+                    onNewAliasChange={setNewAlias}
                     searching={searching}
                     searchErr={searchErr}
                     searchResults={searchResults}
                     onAddMember={addMemberByUser}
                     onChangeRole={changeRole}
+                    onUpdateAlias={updateAlias}
                     onRemoveMember={removeMemberRow}
                 />
             )}
@@ -369,6 +398,10 @@ export default function CommunityDetailPage() {
                             ? selectedAlert.alertStatus !== AlertStatus.ATTENDED
                             : null
                     }
+                    senderLabel={resolveAlertSenderLabel(
+                        selectedAlert,
+                        aliasMap[selectedAlert.userId],
+                    )}
                 />
             )}
         </>

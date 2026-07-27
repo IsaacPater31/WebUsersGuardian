@@ -6,7 +6,7 @@ import { MapPin, EyeOff, Eye, Forward, Flag, CheckCircle2, Clock3 } from 'lucide
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
 import { resolveAlertMessage } from '@/features/alerts/utils/alertTypePresentation';
 
-export default function AlertCard({ alert, onClick, isActive = false }) {
+export default function AlertCard({ alert, onClick, isActive = false, senderLabel = null }) {
     const color      = getAlertColor(alert.alertType, alert);
     const iconName   = getAlertIcon(alert.alertType, alert);
     const Icon       = LucideIcons[iconName] || LucideIcons.AlertTriangle;
@@ -15,6 +15,9 @@ export default function AlertCard({ alert, onClick, isActive = false }) {
     const message    = resolveAlertMessage(alert);
     const timeAgo    = getTimeAgo(alert.timestamp);
     const isAttended = alert.alertStatus === AlertStatus.ATTENDED;
+    const reporter = alert.isAnonymous
+        ? null
+        : (String(senderLabel ?? '').trim() || String(alert.userName ?? '').trim() || null);
 
     // Apple semantic colors
     /* AA-safe hexes (also used as `${statusColor}14` alpha backgrounds). */
@@ -54,6 +57,12 @@ export default function AlertCard({ alert, onClick, isActive = false }) {
                 {message && (
                     <p className="alert-card-desc">{message}</p>
                 )}
+
+                {reporter ? (
+                    <p className="alert-card-reporter" title="Remitente">
+                        {reporter}
+                    </p>
+                ) : null}
 
                 <div className="alert-card-tags">
 

@@ -38,6 +38,8 @@ import {
 } from '@/features/dashboard/utils/analysisHelpers';
 import { scopeAlertsByCommunities } from '@/features/dashboard/utils/statsScope';
 import { useMembershipAdminScope } from '@/features/scope/controller/useMembershipAdminScope';
+import { getMemberAliasMap } from '@/features/communities/repository/communityRepository';
+import { resolveSenderLabelForAlert } from '@/shared/utils/memberDisplayLabel';
 
 function toIsoDate(d) {
     const x = new Date(d);
@@ -69,6 +71,7 @@ export default function Dashboard() {
     const [rawAlerts, setRawAlerts] = useState([]);
     const [newUsers, setNewUsers] = useState([]);
     const [selectedAlert, setSelectedAlert] = useState(null);
+    const [aliasMaps, setAliasMaps] = useState({});
     const hasBootstrappedRef = useRef(false);
     const [chartH, setChartH] = useState(280);
 
@@ -133,6 +136,24 @@ export default function Dashboard() {
         () => scopeAlertsByCommunities(rawAlerts, effectiveIds),
         [rawAlerts, effectiveIds],
     );
+
+    useEffect(() => {
+        const ids = (effectiveIds || []).filter(Boolean);
+        if (!ids.length) {
+            setAliasMaps({});
+            return undefined;
+        }
+        let cancelled = false;
+        Promise.all(ids.map(async (id) => [id, await getMemberAliasMap(id)]))
+            .then((entries) => {
+                if (!cancelled) setAliasMaps(Object.fromEntries(entries));
+            })
+            .catch((err) => {
+                console.warn("[DashboardPage] alias maps", err);
+                if (!cancelled) setAliasMaps({});
+            });
+        return () => { cancelled = true; };
+    }, [effectiveIds]);
 
     /* Business rule: newest unattended alert in the visible scope is highlighted. */
     const latestPendingAlertId = useMemo(
@@ -532,6 +553,7 @@ export default function Dashboard() {
                                         alert={a}
                                         onClick={setSelectedAlert}
                                         isActive={isActivePendingAlert(a, latestPendingAlertId)}
+                                        senderLabel={resolveSenderLabelForAlert(a, aliasMaps)}
                                     />
                                 ))
                             )}

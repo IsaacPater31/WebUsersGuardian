@@ -21,6 +21,8 @@ import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { useViewScope } from '@/features/scope/controller/useViewScope';
 import { filterAlertsByCommunities } from '@/features/alerts/utils/alertScope';
 import { mergeTypeOptionsFromAlerts } from '@/features/alerts/utils/alertTypePresentation';
+import { getMemberAliasMap } from '@/features/communities/repository/communityRepository';
+import { resolveSenderLabelForAlert } from '@/shared/utils/memberDisplayLabel';
 
 function MapFocusController({ focusAlert }) {
     const map = useMap();
@@ -69,6 +71,7 @@ export default function MapPage() {
     const [focusedAlert, setFocusedAlert] = useState(null);
     /** null = all scope communities; [] = none; [ids] = subset */
     const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
+    const [aliasMaps, setAliasMaps] = useState({});
     const { position: userPosition, error: geoError, request: requestLocation } = useUserGeolocation();
 
     const unsubRef = useRef(null);
@@ -86,6 +89,25 @@ export default function MapPage() {
         if (selectedCommunityIds == null) return scopeIds;
         return selectedCommunityIds;
     }, [selectedCommunityIds, scopeIds]);
+
+    useEffect(() => {
+        const ids = (effectiveCommunityIds || []).filter(Boolean);
+        if (!ids.length) {
+            setAliasMaps({});
+            return undefined;
+        }
+        let cancelled = false;
+        Promise.all(ids.map(async (id) => [id, await getMemberAliasMap(id)]))
+            .then((entries) => {
+                if (cancelled) return;
+                setAliasMaps(Object.fromEntries(entries));
+            })
+            .catch((err) => {
+                console.warn('[MapPage] alias maps', err);
+                if (!cancelled) setAliasMaps({});
+            });
+        return () => { cancelled = true; };
+    }, [effectiveCommunityIds]);
 
     useEffect(() => {
         if (unsubRef.current) {
@@ -278,6 +300,7 @@ export default function MapPage() {
                 {selectedAlert && (
                     <SelectedAlertPanel
                         alert={selectedAlert}
+                        senderLabel={resolveSenderLabelForAlert(selectedAlert, aliasMaps)}
                         onClose={() => {
                             setSelectedAlertId(null);
                             setFocusedAlert(null);
@@ -288,7 +311,11 @@ export default function MapPage() {
             </div>
 
             {showModal && selectedAlert && (
-                <AlertDetailModal alert={selectedAlert} onClose={() => setShowModal(false)} />
+                <AlertDetailModal
+                    alert={selectedAlert}
+                    senderLabel={resolveSenderLabelForAlert(selectedAlert, aliasMaps)}
+                    onClose={() => setShowModal(false)}
+                />
             )}
         </div>
     );

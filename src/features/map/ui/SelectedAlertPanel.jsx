@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { Eye, Forward, Flag, EyeOff, User, X } from 'lucide-react';
+import { Eye, Forward, Flag, X } from 'lucide-react';
 import { getTimeAgo, AlertStatus } from '@/shared/config/alertTypes';
-import { getCommunityNames } from '@/features/communities/repository/communityRepository';
+import {
+    getCommunityNames,
+    getMemberAliasMap,
+} from '@/features/communities/repository/communityRepository';
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
 import { resolveAlertTypePresentation } from '@/features/alerts/utils/alertTypePresentation';
 import {
@@ -10,13 +13,16 @@ import {
     enrichDestinationsWithMemberships,
 } from '@/features/alerts/utils/alertDestinations';
 import AlertKeyFacts from '@/features/alerts/ui/AlertKeyFacts';
+import AlertReporterFacts from '@/features/alerts/ui/AlertReporterFacts';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { canMarkAlertAttended } from '@/shared/domain/permissions';
 import AttendAlertControls from '@/features/alerts/ui/AttendAlertControls';
+import { resolveSenderLabelForAlert } from '@/shared/utils/memberDisplayLabel';
 
-export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
+export default function SelectedAlertPanel({ alert, onClose, onShowDetail, senderLabel = null }) {
     const { memberships } = useAuth();
     const [destinations, setDestinations] = useState([]);
+    const [aliasMaps, setAliasMaps] = useState({});
     const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
 
     const { label: main, color, icon } = resolveAlertTypePresentation(alert);
@@ -46,10 +52,34 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
     }, [alert?.communityIds, memberships]);
 
     useEffect(() => {
+        const ids = (alert?.communityIds || []).filter(Boolean);
+        if (!ids.length) {
+            setAliasMaps({});
+            return undefined;
+        }
+        let cancelled = false;
+        Promise.all(ids.map(async (id) => [id, await getMemberAliasMap(id)]))
+            .then((entries) => {
+                if (!cancelled) setAliasMaps(Object.fromEntries(entries));
+            })
+            .catch((err) => {
+                console.warn("[SelectedAlertPanel] alias maps", err);
+                if (!cancelled) setAliasMaps({});
+            });
+        return () => { cancelled = true; };
+    }, [alert?.communityIds]);
+
+    useEffect(() => {
         setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
     }, [alert?.id, alert?.alertStatus]);
 
     const Icon = LucideIcons[icon] || LucideIcons.AlertTriangle;
+    const resolvedSender = useMemo(() => {
+        const fromProp = String(senderLabel ?? '').trim();
+        if (fromProp) return fromProp;
+        return resolveSenderLabelForAlert(alert, aliasMaps);
+    }, [senderLabel, alert, aliasMaps]);
+    const accountName = String(alert?.userName ?? '').trim() || null;
 
     return (
         <div className="map-alert-panel" role="region" aria-label="Resumen de alerta seleccionada">
@@ -90,20 +120,13 @@ export default function SelectedAlertPanel({ alert, onClose, onShowDetail }) {
             <div className="map-alert-panel-body">
                 <AlertKeyFacts alert={alert} destinations={destinations} />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    {alert.isAnonymous ? (
-                        <>
-                            <EyeOff style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} aria-hidden />
-                            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Reporte anónimo</span>
-                        </>
-                    ) : (
-                        <>
-                            <User style={{ width: 14, height: 14, color: 'var(--color-text-tertiary)' }} aria-hidden />
-                            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                                {alert.userName || 'Usuario desconocido'}
-                            </span>
-                        </>
-                    )}
+                <div style={{ marginBottom: 12 }}>
+                    <AlertReporterFacts
+                        compact
+                        isAnonymous={alert.isAnonymous}
+                        primaryLabel={resolvedSender}
+                        accountName={accountName}
+                    />
                 </div>
 
                 <div

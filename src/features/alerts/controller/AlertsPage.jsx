@@ -18,6 +18,8 @@ import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { useViewScope } from '@/features/scope/controller/useViewScope';
 import { filterAlertsByCommunities } from '@/features/alerts/utils/alertScope';
 import { mergeTypeOptionsFromAlerts } from '@/features/alerts/utils/alertTypePresentation';
+import { getMemberAliasMap } from '@/features/communities/repository/communityRepository';
+import { resolveSenderLabelForAlert } from '@/shared/utils/memberDisplayLabel';
 
 const STATUS_LABELS = {
     pending: 'No atendidas',
@@ -54,6 +56,7 @@ export default function AlertsPage() {
     const [showFilterPanel, setShowFilterPanel] = useState(false);
     /** null = all in scope; [] = none; [ids] = subset */
     const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
+    const [aliasMaps, setAliasMaps] = useState({});
 
     useEffect(() => {
         setSelectedCommunityIds(null);
@@ -66,6 +69,25 @@ export default function AlertsPage() {
         if (selectedCommunityIds == null) return scopeIds;
         return selectedCommunityIds;
     }, [selectedCommunityIds, scopeIds]);
+
+    useEffect(() => {
+        const ids = (effectiveCommunityIds || []).filter(Boolean);
+        if (!ids.length) {
+            setAliasMaps({});
+            return undefined;
+        }
+        let cancelled = false;
+        Promise.all(ids.map(async (id) => [id, await getMemberAliasMap(id)]))
+            .then((entries) => {
+                if (cancelled) return;
+                setAliasMaps(Object.fromEntries(entries));
+            })
+            .catch((err) => {
+                console.warn("[AlertsPage] alias maps", err);
+                if (!cancelled) setAliasMaps({});
+            });
+        return () => { cancelled = true; };
+    }, [effectiveCommunityIds]);
 
     const alerts = useMemo(
         () => filterAlertsByCommunities(rawAlerts, effectiveCommunityIds),
@@ -344,6 +366,7 @@ export default function AlertsPage() {
                                 alert={alert}
                                 onClick={setSelectedAlert}
                                 isActive={isActivePendingAlert(alert, latestPendingAlertId)}
+                                senderLabel={resolveSenderLabelForAlert(alert, aliasMaps)}
                             />
                         ))
                     )}
@@ -363,6 +386,7 @@ export default function AlertsPage() {
             {selectedAlert && (
                 <AlertDetailModal
                     alert={selectedAlert}
+                    senderLabel={resolveSenderLabelForAlert(selectedAlert, aliasMaps)}
                     onClose={() => setSelectedAlert(null)}
                 />
             )}

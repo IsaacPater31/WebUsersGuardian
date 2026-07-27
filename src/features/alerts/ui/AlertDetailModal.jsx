@@ -1,16 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { X, MapPin, Clock, ExternalLink, CheckCircle2, Clock3 } from 'lucide-react';
 import { getTimeAgo, AlertStatus } from '@/shared/config/alertTypes';
-import { getCommunityNames } from '@/features/communities/repository/communityRepository';
+import {
+    getCommunityNames,
+    getMemberAliasMap,
+} from '@/features/communities/repository/communityRepository';
 import { getSubtypeLabel } from '@/features/alerts/utils/alertSubtype';
 import {
     resolveAlertTypePresentation,
 } from '@/features/alerts/utils/alertTypePresentation';
 import { alertContentLabels, enrichDestinationsWithMemberships } from '@/features/alerts/utils/alertDestinations';
 import AlertKeyFacts from '@/features/alerts/ui/AlertKeyFacts';
+import AlertReporterFacts from '@/features/alerts/ui/AlertReporterFacts';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { canMarkAlertAttended } from '@/shared/domain/permissions';
+import { resolveSenderLabelForAlert } from '@/shared/utils/memberDisplayLabel';
 import AttendAlertControls from './AttendAlertControls';
 
 /** Detalle de alerta en español (producto). */
@@ -138,9 +143,10 @@ function InfoRow({ icon, iconColor = 'var(--color-text-tertiary)', label, childr
 }
 
 // ─── Main modal ───────────────────────────────────────────────────────────────
-export default function AlertDetailModal({ alert, onClose, canMarkOverride = null }) {
+export default function AlertDetailModal({ alert, onClose, canMarkOverride = null, senderLabel = null }) {
     const { memberships } = useAuth();
     const [destinations, setDestinations] = useState([]);
+    const [aliasMaps, setAliasMaps] = useState({});
     const [localStatus, setLocalStatus] = useState(alert?.alertStatus ?? AlertStatus.PENDING);
 
     useEffect(() => {
@@ -164,8 +170,33 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
     }, [alert?.communityIds, memberships]);
 
     useEffect(() => {
+        const ids = (alert?.communityIds || []).filter(Boolean);
+        if (!ids.length) {
+            setAliasMaps({});
+            return undefined;
+        }
+        let cancelled = false;
+        Promise.all(ids.map(async (id) => [id, await getMemberAliasMap(id)]))
+            .then((entries) => {
+                if (!cancelled) setAliasMaps(Object.fromEntries(entries));
+            })
+            .catch((err) => {
+                console.warn('[AlertDetailModal] alias maps', err);
+                if (!cancelled) setAliasMaps({});
+            });
+        return () => { cancelled = true; };
+    }, [alert?.communityIds]);
+
+    useEffect(() => {
         setLocalStatus(alert?.alertStatus ?? AlertStatus.PENDING);
     }, [alert?.id, alert?.alertStatus]);
+
+    const resolvedSender = useMemo(() => {
+        if (!alert) return null;
+        const fromProp = String(senderLabel ?? '').trim();
+        if (fromProp) return fromProp;
+        return resolveSenderLabelForAlert(alert, aliasMaps);
+    }, [senderLabel, alert, aliasMaps]);
 
     if (!alert) return null;
 
@@ -185,6 +216,7 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
 
     const hasLocation = alert.shareLocation && alert.location;
     const dateLocale = 'es-CO';
+    const accountName = String(alert.userName ?? '').trim() || null;
 
     return (
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -340,7 +372,16 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                         </div>
                     </div>
 
-                    {/* Anonimato */}
+                    {/* Remitente (alias clínico) */}
+                    <div className="modal-section">
+                        <AlertReporterFacts
+                            isAnonymous={alert.isAnonymous}
+                            primaryLabel={resolvedSender}
+                            accountName={accountName}
+                        />
+                    </div>
+
+                    {/* Anonimato / canal */}
                     <div className="modal-section">
                         <div style={{
                             padding: '14px 16px',
@@ -354,11 +395,6 @@ export default function AlertDetailModal({ alert, onClose, canMarkOverride = nul
                             <div style={{ fontSize: '15px', fontWeight: 800, color: alert.isAnonymous ? '#b45309' : '#1b7f3a' }}>
                                 {alert.isAnonymous ? es('Reporte anónimo') : es('Reporte identificado')}
                             </div>
-                            {!alert.isAnonymous && (alert.userName || '').trim() ? (
-                                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)', marginTop: 8 }}>
-                                    {`${es('Reportado por')}: ${alert.userName}`}
-                                </div>
-                            ) : null}
                         </div>
                     </div>
 

@@ -12,6 +12,7 @@ export function fromDoc(docSnap, community) {
         userId: d[MemberFields.userId] || d.user_id || null,
         role: d[MemberFields.role] || MemberFields.roleMember,
         joinedAt: d[MemberFields.joinedAt] || d.joined_at || null,
+        alias: d[MemberFields.alias] ?? d.alias ?? null,
         community,
     };
 }

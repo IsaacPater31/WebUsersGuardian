@@ -5,6 +5,7 @@ import {
     addDoc,
     collection,
     deleteDoc,
+    deleteField,
     doc,
     getDoc,
     serverTimestamp,
@@ -91,19 +92,29 @@ export async function userUpdateCommunity(communityId, patch, memberships) {
     await updateDoc(ref, data);
 }
 
-export async function userAddCommunityMember(communityId, userId, role, memberships, actor = {}) {
+export async function userAddCommunityMember(
+    communityId,
+    userId,
+    role,
+    memberships,
+    actor = {},
+    alias,
+) {
     const membership = await assertCanManage(communityId, memberships);
     const r = normalizeRole(role);
     const allowed = await getAllowedRoles(membership.community);
     if (!allowed.has(r)) {
         throw new Error('Rol inválido para esta comunidad');
     }
-    await addDoc(membersCol(), {
+    const data = {
         [MemberFields.communityId]: communityId,
         [MemberFields.userId]: userId,
         [MemberFields.role]: r,
         [MemberFields.joinedAt]: serverTimestamp(),
-    });
+    };
+    const trimmedAlias = String(alias ?? '').trim();
+    if (trimmedAlias) data[MemberFields.alias] = trimmedAlias;
+    await addDoc(membersCol(), data);
     const isEntity = isOfficialEntityCommunity(membership.community);
     const subjectName = actor.subjectName ?? (await getUserDisplayName(userId));
     await notifyMembershipEvent({
@@ -177,6 +188,21 @@ export async function userUpdateMemberRole(memberDocId, role, communityId, membe
             previousRole,
         });
     }
+}
+
+export async function userUpdateMemberAlias(memberDocId, alias, communityId, memberships) {
+    await assertCanManage(communityId, memberships);
+    const memberRef = doc(db, Collections.COMMUNITY_MEMBERS, memberDocId);
+    const memberSnap = await getDoc(memberRef);
+    if (!memberSnap.exists()) throw new Error('Miembro no encontrado');
+    const memberData = memberSnap.data() || {};
+    if (memberData[MemberFields.communityId] !== communityId) {
+        throw new Error('Miembro no pertenece a esta comunidad');
+    }
+    const trimmed = String(alias ?? '').trim();
+    await updateDoc(memberRef, {
+        [MemberFields.alias]: trimmed ? trimmed : deleteField(),
+    });
 }
 
 /**

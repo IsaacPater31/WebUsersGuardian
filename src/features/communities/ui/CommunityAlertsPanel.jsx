@@ -1,9 +1,15 @@
 import AlertCard from '@/features/alerts/ui/AlertCard';
+import { resolveAlertSenderLabel } from '@/shared/utils/memberDisplayLabel';
 
 /**
  * Alerts / reports list tab for a community or entity.
  */
-export default function CommunityAlertsPanel({ alerts, isEntity, onSelectAlert }) {
+export default function CommunityAlertsPanel({
+    alerts,
+    isEntity,
+    onSelectAlert,
+    aliasMap = {},
+}) {
     return (
         <section className="section section--dash">
             <div className="section-body">
@@ -15,7 +21,12 @@ export default function CommunityAlertsPanel({ alerts, isEntity, onSelectAlert }
                     </p>
                 ) : (
                     alerts.map((a) => (
-                        <AlertCard key={a.id} alert={a} onClick={onSelectAlert} />
+                        <AlertCard
+                            key={a.id}
+                            alert={a}
+                            onClick={onSelectAlert}
+                            senderLabel={resolveAlertSenderLabel(a, aliasMap[a.userId])}
+                        />
                     ))
                 )}
             </div>

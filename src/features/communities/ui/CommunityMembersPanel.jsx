@@ -1,5 +1,35 @@
+import { useEffect, useState } from 'react';
 import { UserMinus, UserPlus } from 'lucide-react';
 import { roleLabel } from '@/shared/domain/permissions';
+
+function AliasCell({ member, canManage, busy, onUpdateAlias }) {
+    const [value, setValue] = useState(member.alias || '');
+
+    useEffect(() => {
+        setValue(member.alias || '');
+    }, [member.alias]);
+
+    if (!canManage) {
+        return member.alias || '—';
+    }
+
+    return (
+        <input
+            className="login-input admin-select-inline"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={() => {
+                const trimmed = value.trim();
+                if (trimmed !== String(member.alias || '').trim()) {
+                    onUpdateAlias(member.id, trimmed);
+                }
+            }}
+            disabled={busy}
+            placeholder="Opcional"
+            aria-label={`Alias de ${member.displayName || 'miembro'}`}
+        />
+    );
+}
 
 /**
  * Members tab: optional add-member search + members table.
@@ -15,11 +45,14 @@ export default function CommunityMembersPanel({
     onMemberSearchChange,
     newRole,
     onNewRoleChange,
+    newAlias,
+    onNewAliasChange,
     searching,
     searchErr,
     searchResults,
     onAddMember,
     onChangeRole,
+    onUpdateAlias,
     onRemoveMember,
 }) {
     return (
@@ -41,6 +74,12 @@ export default function CommunityMembersPanel({
                                 placeholder="Nombre o correo"
                                 value={memberSearch}
                                 onChange={(e) => onMemberSearchChange(e.target.value)}
+                            />
+                            <input
+                                className="login-input"
+                                placeholder="Alias (opcional)"
+                                value={newAlias}
+                                onChange={(e) => onNewAliasChange(e.target.value)}
                             />
                             <select
                                 className="login-input admin-select"
@@ -88,6 +127,7 @@ export default function CommunityMembersPanel({
                                 <thead>
                                     <tr>
                                         <th>Nombre</th>
+                                        <th>Alias</th>
                                         <th>Correo</th>
                                         <th>Rol</th>
                                         {canManage && <th className="admin-th-actions" />}
@@ -96,7 +136,31 @@ export default function CommunityMembersPanel({
                                 <tbody>
                                     {members.map((m) => (
                                         <tr key={m.id}>
-                                            <td>{m.displayName || '—'}</td>
+                                            <td>
+                                                <div className="member-name-cell">
+                                                    <span className="member-name-primary">
+                                                        {m.alias
+                                                            ? (m.alias)
+                                                            : (m.profileName || m.displayName || '—')}
+                                                    </span>
+                                                    {m.alias && (m.profileName || '').trim()
+                                                        && m.profileName.trim().toLowerCase() !== String(m.alias).trim().toLowerCase()
+                                                        ? (
+                                                            <span className="member-name-secondary">
+                                                                Cuenta: {m.profileName}
+                                                            </span>
+                                                        )
+                                                        : null}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <AliasCell
+                                                    member={m}
+                                                    canManage={canManage}
+                                                    busy={busy}
+                                                    onUpdateAlias={onUpdateAlias}
+                                                />
+                                            </td>
                                             <td className="admin-mono">{m.email || '—'}</td>
                                             <td>
                                                 {canManage ? (

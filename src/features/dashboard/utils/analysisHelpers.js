@@ -142,7 +142,6 @@ function contributorLabelFromAlert(a) {
     if (n) return n;
     const e = a.userEmail?.trim();
     if (e) return e;
-    if (a.userId) return `${a.userId.slice(0, 8)}…`;
     return 'Usuario';
 }
 
