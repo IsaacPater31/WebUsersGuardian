@@ -4,6 +4,7 @@ import {
     subscribeToMapAlertsFiltered,
     sortAlertsNewestFirst,
     sortPendingAlertsNewestFirst,
+    findNewestPendingAmongChanges,
 } from '@/features/alerts/repository/alertRepository';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '@/features/map/utils/mapUtils';
 import DynamicMarkers from '@/features/map/ui/DynamicMarkers';
@@ -17,6 +18,7 @@ import MapFilterPanel from '@/features/map/ui/MapFilterPanel';
 import MapCommunityFilterBar from '@/features/map/ui/MapCommunityFilterBar';
 import ViewScopeToggle from '@/features/scope/ui/ViewScopeToggle';
 import { DEFAULT_FILTERS } from '@/shared/config/filterOptions';
+import { ACTIVE_ALERT_FEEDBACK_MS } from '@/shared/config/alertTypes';
 import { useAuth } from '@/features/auth/ui/AuthProvider';
 import { useViewScope } from '@/features/scope/controller/useViewScope';
 import { filterAlertsByCommunities } from '@/features/alerts/utils/alertScope';
@@ -49,6 +51,10 @@ function MapFocusController({ focusAlert }) {
     return null;
 }
 
+function alertHasMapLocation(alert) {
+    return Boolean(alert?.shareLocation && alert?.location);
+}
+
 export default function MapPage() {
     const { loading: authLoading } = useAuth();
     const {
@@ -68,13 +74,19 @@ export default function MapPage() {
     const [selectedAlertId, setSelectedAlertId] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [filters, setFilters] = useState(DEFAULT_FILTERS);
+    const [timedPriorityAlertId, setTimedPriorityAlertId] = useState(null);
     const [focusedAlert, setFocusedAlert] = useState(null);
+    /** Prefer latest unattended alert over GPS one-shot center. */
+    const [suppressUserAutoCenter, setSuppressUserAutoCenter] = useState(false);
     /** null = all scope communities; [] = none; [ids] = subset */
     const [selectedCommunityIds, setSelectedCommunityIds] = useState(null);
     const [aliasMaps, setAliasMaps] = useState({});
     const { position: userPosition, error: geoError, request: requestLocation } = useUserGeolocation();
 
     const unsubRef = useRef(null);
+    const isInitialSnapshotRef = useRef(true);
+    const lastAutoFocusIdRef = useRef(null);
+    const effectiveCommunityIdsRef = useRef(null);
 
     // Reset selection + type filters when switching Comunidades ↔ Reportes
     useEffect(() => {
@@ -83,12 +95,17 @@ export default function MapPage() {
         setSelectedAlertId(null);
         setFocusedAlert(null);
         setShowModal(false);
+        setTimedPriorityAlertId(null);
+        setSuppressUserAutoCenter(false);
+        lastAutoFocusIdRef.current = null;
     }, [scope]);
 
     const effectiveCommunityIds = useMemo(() => {
         if (selectedCommunityIds == null) return scopeIds;
         return selectedCommunityIds;
     }, [selectedCommunityIds, scopeIds]);
+
+    effectiveCommunityIdsRef.current = effectiveCommunityIds;
 
     useEffect(() => {
         const ids = (effectiveCommunityIds || []).filter(Boolean);
@@ -115,11 +132,47 @@ export default function MapPage() {
             unsubRef.current = null;
         }
 
+        isInitialSnapshotRef.current = true;
+        lastAutoFocusIdRef.current = null;
+        setSuppressUserAutoCenter(false);
         setAlertsLoading(true);
 
-        const unsub = subscribeToMapAlertsFiltered(filters, (data) => {
+        const unsub = subscribeToMapAlertsFiltered(filters, (data, meta = {}) => {
             setRawAlerts(data);
             setAlertsLoading(false);
+
+            const communityFilter = effectiveCommunityIdsRef.current;
+            const scoped = filterAlertsByCommunities(data, communityFilter);
+            const latestPending = sortPendingAlertsNewestFirst(scoped)[0] ?? null;
+
+            if (isInitialSnapshotRef.current) {
+                isInitialSnapshotRef.current = false;
+                if (latestPending?.id && alertHasMapLocation(latestPending)) {
+                    lastAutoFocusIdRef.current = latestPending.id;
+                    setSuppressUserAutoCenter(true);
+                    setFocusedAlert({ ...latestPending, __focusKey: Date.now() });
+                }
+                return;
+            }
+
+            const changedIds = Array.isArray(meta.changedIds) ? meta.changedIds : [];
+            const newestChanged = findNewestPendingAmongChanges(scoped, changedIds);
+            if (!newestChanged?.id) return;
+
+            const nextActiveId = latestPending?.id ?? null;
+            if (newestChanged.id !== nextActiveId) return;
+
+            setTimedPriorityAlertId(newestChanged.id);
+
+            if (
+                newestChanged.id !== lastAutoFocusIdRef.current &&
+                alertHasMapLocation(newestChanged)
+            ) {
+                lastAutoFocusIdRef.current = newestChanged.id;
+                setSuppressUserAutoCenter(true);
+                setSelectedAlertId(newestChanged.id);
+                setFocusedAlert({ ...newestChanged, __focusKey: Date.now() });
+            }
         });
 
         unsubRef.current = unsub;
@@ -131,6 +184,14 @@ export default function MapPage() {
             }
         };
     }, [filters]);
+
+    useEffect(() => {
+        if (!timedPriorityAlertId) return undefined;
+        const timeout = setTimeout(() => {
+            setTimedPriorityAlertId(null);
+        }, ACTIVE_ALERT_FEEDBACK_MS);
+        return () => clearTimeout(timeout);
+    }, [timedPriorityAlertId]);
 
     const alerts = useMemo(
         () => filterAlertsByCommunities(rawAlerts, effectiveCommunityIds),
@@ -235,7 +296,10 @@ export default function MapPage() {
                         enabled={!userPosition}
                         onRequest={requestLocation}
                     />
-                    <AutoCenterOnUser position={userPosition} />
+                    <AutoCenterOnUser
+                        position={userPosition}
+                        enabled={!suppressUserAutoCenter}
+                    />
                     <UserLocationMarker position={userPosition} />
 
                     <LocateMeButton
@@ -264,6 +328,11 @@ export default function MapPage() {
                     typesSectionLabel={isReportsScope ? 'Tipo de reporte' : 'Tipo de alerta'}
                     listAlerts={listAlerts}
                     activeAlertId={activeAlertId}
+                    pulseAlertId={
+                        timedPriorityAlertId && timedPriorityAlertId === activeAlertId
+                            ? timedPriorityAlertId
+                            : null
+                    }
                     selectedAlertId={selectedAlertId}
                     onRecentAlertSelect={handleRecentAlertSelect}
                 />

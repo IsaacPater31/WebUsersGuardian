@@ -23,17 +23,19 @@ export function UserLocationMarker({ position }) {
 
 /**
  * AutoCenterOnUser — centers the map once when GPS becomes available.
+ * Pass enabled={false} when the map should prefer another focus target
+ * (e.g. latest unattended alert).
  */
-export function AutoCenterOnUser({ position }) {
+export function AutoCenterOnUser({ position, enabled = true }) {
     const map = useMap();
     const [centered, setCentered] = useState(false);
 
     useEffect(() => {
-        if (!position || centered) return;
+        if (!enabled || !position || centered) return;
         // First center must be instant to avoid "jump from Bogotá" perception.
         map.setView(position, DEFAULT_ZOOM, { animate: false });
         setCentered(true);
-    }, [position, centered, map]);
+    }, [position, centered, map, enabled]);
 
     return null;
 }
